@@ -179,12 +179,16 @@ describe("timeline groups", () => {
 
   it("groups by repository and by containing folder, keeping the numbering", () => {
     const byRepo = groupTimeline(scan(), "repository", "oldest");
-    expect(byRepo.map((group) => [group.title, group.entries.map((item) => item.sequence)])).toEqual([
+    expect(
+      byRepo.map((group) => [group.title, group.entries.map((item) => item.sequence)]),
+    ).toEqual([
       ["app", [1, 2, 3]],
       ["svc", [4]],
     ]);
     const byFolder = groupTimeline(scan(), "folder", "newest");
-    expect(byFolder.map((group) => [group.title, group.entries.map((item) => item.sequence)])).toEqual([
+    expect(
+      byFolder.map((group) => [group.title, group.entries.map((item) => item.sequence)]),
+    ).toEqual([
       ["Scanned folder", [4, 2, 1]],
       ["nested", [3]],
     ]);
@@ -208,7 +212,9 @@ describe("comparison availability", () => {
     expect(unavailableReason("worktree", unknown, undefined)).toBe(
       "The start of this worktree is unknown",
     );
-    expect(unavailableReason("worktree", unknown, undefined, { startOverride: "HEAD~1" })).toBeNull();
+    expect(
+      unavailableReason("worktree", unknown, undefined, { startOverride: "HEAD~1" }),
+    ).toBeNull();
     expect(unavailableReason("upstream", feature, undefined)).toBe("This branch has no upstream");
     expect(unavailableReason("base", checkout("/w/y", { head: null }), undefined)).toBe(
       "This checkout has no commits yet",

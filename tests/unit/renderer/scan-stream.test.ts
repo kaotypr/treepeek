@@ -24,7 +24,9 @@ function fakeApi() {
       return () => set?.delete(listener);
     },
     core: {
-      session: { open: async () => ({ ok: true, value: { sessionId: "s", gitVersion: "2.50.0" } }) },
+      session: {
+        open: async () => ({ ok: true, value: { sessionId: "s", gitVersion: "2.50.0" } }),
+      },
       scan: {
         start: () => new Promise<Result<unknown>>((resolve) => pendingStarts.push(resolve)),
       },

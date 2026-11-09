@@ -48,7 +48,18 @@ describe("RecentFolders", () => {
     const recent = new RecentFolders(new SettingsStore(settingsDir));
     for (let index = 0; index < 12; index += 1) recent.add(`/f${index}`);
     recent.add("/f5");
-    expect(recent.list()).toEqual(["/f5", "/f11", "/f10", "/f9", "/f8", "/f7", "/f6", "/f4", "/f3", "/f2"]);
+    expect(recent.list()).toEqual([
+      "/f5",
+      "/f11",
+      "/f10",
+      "/f9",
+      "/f8",
+      "/f7",
+      "/f6",
+      "/f4",
+      "/f3",
+      "/f2",
+    ]);
     recent.remove("/f11");
     expect(recent.has("/f11")).toBe(false);
     recent.clear();

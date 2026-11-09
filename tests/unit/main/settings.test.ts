@@ -127,7 +127,9 @@ describe("SettingsStore", () => {
   it("refuses relative recent folders and more than ten of them", () => {
     const store = new SettingsStore(dir);
     expect(() => store.set({ recentFolders: ["relative"] })).toThrow();
-    expect(() => store.set({ recentFolders: Array.from({ length: 11 }, (_, i) => `/f${i}`) })).toThrow();
+    expect(() =>
+      store.set({ recentFolders: Array.from({ length: 11 }, (_, i) => `/f${i}`) }),
+    ).toThrow();
     expect(store.get().recentFolders).toEqual([]);
   });
 
