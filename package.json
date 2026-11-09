@@ -1,0 +1,53 @@
+{
+  "name": "treepeek",
+  "productName": "Treepeek",
+  "version": "0.1.0-alpha.0",
+  "description": "Review the Git worktrees beneath a folder, one window per folder.",
+  "private": true,
+  "license": "Apache-2.0",
+  "author": "Adhitya Yosua Sanjaya Andaria",
+  "type": "module",
+  "main": "./out/main/index.js",
+  "scripts": {
+    "postinstall": "install-electron",
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "typecheck": "tsc -b",
+    "lint": "biome check .",
+    "format": "biome format --write .",
+    "test": "vitest run",
+    "test:e2e": "playwright test",
+    "package": "bun run build && electron-builder --dir",
+    "package:dmg": "bun run build && electron-builder --mac dmg"
+  },
+  "trustedDependencies": [
+    "electron"
+  ],
+  "devDependencies": {
+    "@axe-core/playwright": "4.14.0",
+    "@base-ui/react": "1.9.0",
+    "@biomejs/biome": "2.6.6",
+    "@electron/fuses": "2.1.3",
+    "@playwright/test": "1.65.0",
+    "@tailwindcss/vite": "4.3.5",
+    "@types/node": "24.19.2",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "5.2.0",
+    "axe-core": "4.14.0",
+    "class-variance-authority": "0.7.1",
+    "clsx": "2.1.1",
+    "electron": "45.2.3",
+    "electron-builder": "26.18.0",
+    "electron-vite": "5.0.0",
+    "happy-dom": "21.0.4",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "tailwind-merge": "3.7.0",
+    "tailwindcss": "4.3.5",
+    "typescript": "7.0.2",
+    "valibot": "1.5.0",
+    "vite": "7.3.7",
+    "vitest": "5.1.0"
+  }
+}

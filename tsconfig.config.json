@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./node_modules/.cache/tsc/config",
+    "rootDir": ".",
+    "types": ["node"]
+  },
+  "include": ["electron.vite.config.ts", "vitest.config.ts", "playwright.config.ts"]
+}

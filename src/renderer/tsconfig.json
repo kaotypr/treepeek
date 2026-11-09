@@ -1,0 +1,15 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "../../node_modules/.cache/tsc/renderer",
+    "rootDir": "..",
+    "lib": ["es2024", "dom", "dom.iterable"],
+    "jsx": "react-jsx",
+    "types": [],
+    "paths": {
+      "@renderer/*": ["./*"]
+    }
+  },
+  "include": ["**/*.ts", "**/*.tsx", "../preload/types.d.ts"],
+  "references": [{ "path": "../shared" }]
+}
