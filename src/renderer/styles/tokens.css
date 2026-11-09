@@ -161,6 +161,7 @@
     --muted-foreground: #3f4f45;
     --diff-added: #cfeabd;
     --diff-removed: #ffd3cc;
+    --primary-strong: #2b5c2e;
     --selection: #d6e8b4;
     --selection-border: #6f8f3c;
     --hover: #e4ecda;
@@ -175,6 +176,11 @@
     --muted-foreground: #c0cec5;
     --diff-added: #1f4a2b;
     --diff-removed: #572622;
+    /* The light overrides above share :root's specificity, so dark restates these. */
+    --primary-strong: #a3d47e;
+    --status-modified: #f0b86a;
+    --status-deleted: #f6a091;
+    --status-renamed: #a7c8ef;
     --selection: #2b4630;
     --selection-border: #6f9a5f;
     --hover: #22312b;
