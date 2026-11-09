@@ -254,7 +254,6 @@ function wait(pending: Pending, signal: AbortSignal): Promise<Listed> {
         () => reject(cancelledError()),
       );
     };
-    signal.addEventListener("abort", onAbort, { once: true });
     pending.promise.then(
       (listed) => {
         if (done()) resolve(listed);
@@ -263,6 +262,9 @@ function wait(pending: Pending, signal: AbortSignal): Promise<Listed> {
         if (done()) reject(error);
       },
     );
+    // The caller may have given up while its stamps were being checked.
+    if (signal.aborted) onAbort();
+    else signal.addEventListener("abort", onAbort, { once: true });
   });
 }
 
