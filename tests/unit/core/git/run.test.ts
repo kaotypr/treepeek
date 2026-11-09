@@ -282,3 +282,31 @@ describe("runGit", () => {
     });
   });
 });
+
+describe("runGit hardening (smoke test; the full suite comes with the scan)", () => {
+  it("fires none of the default traps in a repository's own config", async () => {
+    const { existsSync } = await import("node:fs");
+    const { fixture } = await import("../../../support/git-fixture");
+    const fx = fixture();
+    try {
+      const marker = fx.outsidePath("marker.log");
+      const trapped = fx.repo("trapped").commit({ "a.txt": "1\n" });
+      const start = trapped.head();
+      trapped.maliciousConfig(marker).signedCommit();
+      trapped.write({ "a.txt": "2\n", "new.txt": "n\n" });
+      useTestGit();
+      for (const args of [
+        ["status", "--porcelain=v2", "-z", "--branch", "--untracked-files=all", "--no-renames"],
+        ["reflog", "show", "--date=iso-strict", "--format=%H%x09%gd", "-z", "HEAD"],
+        ["diff", "--raw", "-z", "--find-renames", "--abbrev=40", start],
+        ["diff", "--find-renames", "-U3", start, "--", "a.txt"],
+        ["diff", "--no-index", "-U3", "--", "/dev/null", "new.txt"],
+      ]) {
+        await runGit(trapped.path, args, { signal: signal(), okExitCodes: [0, 1] });
+        expect(existsSync(marker), args.join(" ")).toBe(false);
+      }
+    } finally {
+      fx.cleanup();
+    }
+  });
+});
