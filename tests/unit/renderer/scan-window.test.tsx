@@ -28,7 +28,14 @@ function fakeApi() {
       return () => set?.delete(listener);
     },
     main: {
-      settings: { get: answer("settings.get", { appearance: "system", gitPath: null, recentFolders: [], windows: [] }) },
+      settings: {
+        get: answer("settings.get", {
+          appearance: "system",
+          gitPath: null,
+          recentFolders: [],
+          windows: [],
+        }),
+      },
       window: { state: answer("window.state", {}) },
     },
     core: {
@@ -90,7 +97,9 @@ describe("ScanWindow", () => {
     fake.emit("git.state", { found: true, path: "/usr/bin/git", version: "2.50.0" });
     fake.emit("core.state", { state: "ready" });
     await render();
-    await vi.waitFor(() => expect(fake.calls.filter((call) => call === "scan.start")).toHaveLength(1));
+    await vi.waitFor(() =>
+      expect(fake.calls.filter((call) => call === "scan.start")).toHaveLength(1),
+    );
 
     await act(async () => fake.emit("core.state", { state: "restarting" }));
     expect(container.querySelector('[data-testid="connection-banner"]')?.textContent).toBe(
@@ -98,7 +107,11 @@ describe("ScanWindow", () => {
     );
     await act(async () => fake.emit("core.state", { state: "ready" }));
     expect(container.querySelector('[data-testid="connection-banner"]')).toBeNull();
-    await vi.waitFor(() => expect(fake.calls.filter((call) => call === "session.open")).toHaveLength(2));
-    await vi.waitFor(() => expect(fake.calls.filter((call) => call === "scan.start")).toHaveLength(2));
+    await vi.waitFor(() =>
+      expect(fake.calls.filter((call) => call === "session.open")).toHaveLength(2),
+    );
+    await vi.waitFor(() =>
+      expect(fake.calls.filter((call) => call === "scan.start")).toHaveLength(2),
+    );
   });
 });
