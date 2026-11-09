@@ -189,7 +189,7 @@ describe("contract", () => {
         state: { found: false, problem: "xcodeMissing" },
       }).success,
     ).toBe(true);
-    expect(CONTRACT_VERSION).toBe(5);
+    expect(CONTRACT_VERSION).toBe(6);
   });
 
   it("carries paths.validate between main and core, bounded", () => {
@@ -598,7 +598,12 @@ describe("MainRouter (main path)", () => {
   it("returns invalidRequest for an invalid payload and rejects unknown channels", async () => {
     const router = new MainRouter(memoryLogger().log);
     router.handle(mainCalls["settings.set"], (_ctx, patch) =>
-      ok({ appearance: patch.appearance ?? "system", gitPath: null }),
+      ok({
+        appearance: patch.appearance ?? "system",
+        gitPath: null,
+        recentFolders: [],
+        windows: [],
+      }),
     );
     expect(
       await router.dispatch({ ch: "settings.set", p: { appearance: 1 } }, { windowId: 1 }),

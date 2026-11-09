@@ -26,7 +26,13 @@ describe("SettingsStore", () => {
     const reopened = new SettingsStore(dir);
     expect(reopened.get().appearance).toBe("dark");
     const onDisk = JSON.parse(readFileSync(join(dir, "settings.json"), "utf8"));
-    expect(onDisk).toEqual({ version: SETTINGS_VERSION, appearance: "dark", gitPath: null });
+    expect(onDisk).toEqual({
+      version: SETTINGS_VERSION,
+      appearance: "dark",
+      gitPath: null,
+      recentFolders: [],
+      windows: [],
+    });
   });
 
   it("writes atomically, leaving no temporary file behind", () => {
@@ -69,7 +75,60 @@ describe("SettingsStore", () => {
   });
   it("loads a file written before gitPath existed, with no override", () => {
     writeFileSync(join(dir, "settings.json"), JSON.stringify({ version: 1, appearance: "dark" }));
-    expect(new SettingsStore(dir).get()).toEqual({ appearance: "dark", gitPath: null });
+    expect(new SettingsStore(dir).get()).toEqual({
+      appearance: "dark",
+      gitPath: null,
+      recentFolders: [],
+      windows: [],
+    });
+  });
+
+  it("keeps recent folders and saved windows across a restart", () => {
+    const window = {
+      scanRoot: "/Users/me/work",
+      bounds: { x: 10, y: 20, width: 1200, height: 800 },
+      ui: {
+        timelineOpen: true,
+        navigatorMode: "tree" as const,
+        timelineGrouping: "repository" as const,
+        timelineOrder: "newest" as const,
+        previewMode: "unified" as const,
+        timelineWidth: 280,
+        navigatorWidth: 360,
+        selectedCheckout: "/Users/me/work/app",
+      },
+    };
+    new SettingsStore(dir).set({ recentFolders: ["/Users/me/work"], windows: [window] });
+    const reopened = new SettingsStore(dir).get();
+    expect(reopened.recentFolders).toEqual(["/Users/me/work"]);
+    expect(reopened.windows).toEqual([window]);
+  });
+
+  it("drops damaged window entries without losing the other settings", () => {
+    writeFileSync(
+      join(dir, "settings.json"),
+      JSON.stringify({
+        version: 1,
+        appearance: "dark",
+        recentFolders: ["relative/path"],
+        windows: [{ scanRoot: "/Users/me/work", bounds: "wide", ui: { timelineOpen: "yes" } }],
+      }),
+    );
+    const store = new SettingsStore(dir);
+    expect(store.get()).toEqual({
+      appearance: "dark",
+      gitPath: null,
+      recentFolders: [],
+      windows: [{ scanRoot: "/Users/me/work", bounds: null, ui: null }],
+    });
+    expect(readdirSync(dir).some((name) => name.startsWith("settings.corrupt-"))).toBe(false);
+  });
+
+  it("refuses relative recent folders and more than ten of them", () => {
+    const store = new SettingsStore(dir);
+    expect(() => store.set({ recentFolders: ["relative"] })).toThrow();
+    expect(() => store.set({ recentFolders: Array.from({ length: 11 }, (_, i) => `/f${i}`) })).toThrow();
+    expect(store.get().recentFolders).toEqual([]);
   });
 
   it("stores the git binary override from main, and clears it with null", () => {
