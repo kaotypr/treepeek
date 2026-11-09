@@ -3,10 +3,14 @@
   "compilerOptions": {
     "outDir": "../node_modules/.cache/tsc/tests",
     "rootDir": "..",
-    "lib": ["es2024", "dom"],
-    "types": ["node"]
+    "lib": ["es2024", "dom", "dom.iterable"],
+    "jsx": "react-jsx",
+    "types": ["node"],
+    "paths": {
+      "@renderer/*": ["../src/renderer/*"]
+    }
   },
-  "include": ["**/*.ts", "../src/preload/types.d.ts"],
+  "include": ["**/*.ts", "**/*.tsx", "../scripts/**/*.ts", "../src/preload/types.d.ts"],
   "references": [
     {
       "path": "../src/shared"
@@ -16,6 +20,9 @@
     },
     {
       "path": "../src/core"
+    },
+    {
+      "path": "../src/renderer"
     }
   ]
 }

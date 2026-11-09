@@ -1,0 +1,94 @@
+{
+  "path": "i18n/strings.json",
+  "status": "modified",
+  "binary": false,
+  "hunks": [
+    {
+      "oldStart": 1,
+      "oldLines": 8,
+      "newStart": 1,
+      "newLines": 8,
+      "header": "@@ -1,8 +1,8 @@",
+      "lines": [
+        {
+          "kind": "context",
+          "text": "{",
+          "oldNo": 1,
+          "newNo": 1
+        },
+        {
+          "kind": "remove",
+          "text": "  \"greeting\": \"Hello\",",
+          "oldNo": 2,
+          "newNo": null
+        },
+        {
+          "kind": "remove",
+          "text": "  \"japanese\": \"こんにちは世界\",",
+          "oldNo": 3,
+          "newNo": null
+        },
+        {
+          "kind": "add",
+          "text": "  \"greeting\": \"Halo 👋\",",
+          "oldNo": null,
+          "newNo": 2
+        },
+        {
+          "kind": "add",
+          "text": "  \"japanese\": \"こんばんは世界\",",
+          "oldNo": null,
+          "newNo": 3
+        },
+        {
+          "kind": "context",
+          "text": "  \"arabic\": \"مرحبا بالعالم\",",
+          "oldNo": 4,
+          "newNo": 4
+        },
+        {
+          "kind": "context",
+          "text": "  \"combining\": \"Café\",",
+          "oldNo": 5,
+          "newNo": 5
+        },
+        {
+          "kind": "remove",
+          "text": "  \"emoji\": \"🌳 tree 👀 peek\",",
+          "oldNo": 6,
+          "newNo": null
+        },
+        {
+          "kind": "add",
+          "text": "  \"emoji\": \"🌲 tree 🔍 peek 🧑‍💻\",",
+          "oldNo": null,
+          "newNo": 6
+        },
+        {
+          "kind": "context",
+          "text": "  \"flag\": \"🇮🇩\"",
+          "oldNo": 7,
+          "newNo": 7
+        },
+        {
+          "kind": "context",
+          "text": "}",
+          "oldNo": 8,
+          "newNo": 8
+        }
+      ]
+    }
+  ],
+  "left": "{\n  \"greeting\": \"Hello\",\n  \"japanese\": \"こんにちは世界\",\n  \"arabic\": \"مرحبا بالعالم\",\n  \"combining\": \"Café\",\n  \"emoji\": \"🌳 tree 👀 peek\",\n  \"flag\": \"🇮🇩\"\n}\n",
+  "right": "{\n  \"greeting\": \"Halo 👋\",\n  \"japanese\": \"こんばんは世界\",\n  \"arabic\": \"مرحبا بالعالم\",\n  \"combining\": \"Café\",\n  \"emoji\": \"🌲 tree 🔍 peek 🧑‍💻\",\n  \"flag\": \"🇮🇩\"\n}\n",
+  "stats": {
+    "added": 3,
+    "removed": 3
+  },
+  "limits": {
+    "patchTruncated": false,
+    "contentOmitted": false,
+    "highlightOff": false
+  },
+  "resultHash": "8399f01f19a33a87b909b975099b0c968679fb70"
+}

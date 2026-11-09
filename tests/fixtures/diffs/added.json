@@ -1,0 +1,64 @@
+{
+  "path": "docs/RELEASING.md",
+  "status": "added",
+  "binary": false,
+  "hunks": [
+    {
+      "oldStart": 0,
+      "oldLines": 0,
+      "newStart": 1,
+      "newLines": 6,
+      "header": "@@ -0,0 +1,6 @@",
+      "lines": [
+        {
+          "kind": "add",
+          "text": "# Release checklist",
+          "oldNo": null,
+          "newNo": 1
+        },
+        {
+          "kind": "add",
+          "text": "",
+          "oldNo": null,
+          "newNo": 2
+        },
+        {
+          "kind": "add",
+          "text": "1. Bump the version in `package.json`.",
+          "oldNo": null,
+          "newNo": 3
+        },
+        {
+          "kind": "add",
+          "text": "2. Run `bun run lint`, `bun run typecheck` and `bun run test`.",
+          "oldNo": null,
+          "newNo": 4
+        },
+        {
+          "kind": "add",
+          "text": "3. Package with `bun run package` and smoke-test the app.",
+          "oldNo": null,
+          "newNo": 5
+        },
+        {
+          "kind": "add",
+          "text": "4. Tag the release: `git tag v0.1.0`.",
+          "oldNo": null,
+          "newNo": 6
+        }
+      ]
+    }
+  ],
+  "left": "",
+  "right": "# Release checklist\n\n1. Bump the version in `package.json`.\n2. Run `bun run lint`, `bun run typecheck` and `bun run test`.\n3. Package with `bun run package` and smoke-test the app.\n4. Tag the release: `git tag v0.1.0`.\n",
+  "stats": {
+    "added": 6,
+    "removed": 0
+  },
+  "limits": {
+    "patchTruncated": false,
+    "contentOmitted": false,
+    "highlightOff": false
+  },
+  "resultHash": "9a1de219e25d6c7abd52ce204e06f5c82f342427"
+}

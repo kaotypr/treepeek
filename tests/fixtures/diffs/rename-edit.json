@@ -1,0 +1,107 @@
+{
+  "path": "src/math/points.ts",
+  "status": "renamed",
+  "binary": false,
+  "hunks": [
+    {
+      "oldStart": 6,
+      "oldLines": 11,
+      "newStart": 6,
+      "newLines": 11,
+      "header": "@@ -6,11 +6,11 @@ export interface Point {",
+      "lines": [
+        {
+          "kind": "context",
+          "text": "export function distance(a: Point, b: Point): number {",
+          "oldNo": 6,
+          "newNo": 6
+        },
+        {
+          "kind": "context",
+          "text": "  const dx = a.x - b.x;",
+          "oldNo": 7,
+          "newNo": 7
+        },
+        {
+          "kind": "context",
+          "text": "  const dy = a.y - b.y;",
+          "oldNo": 8,
+          "newNo": 8
+        },
+        {
+          "kind": "remove",
+          "text": "  return Math.sqrt(dx * dx + dy * dy);",
+          "oldNo": 9,
+          "newNo": null
+        },
+        {
+          "kind": "add",
+          "text": "  return Math.hypot(dx, dy);",
+          "oldNo": null,
+          "newNo": 9
+        },
+        {
+          "kind": "context",
+          "text": "}",
+          "oldNo": 10,
+          "newNo": 10
+        },
+        {
+          "kind": "context",
+          "text": "",
+          "oldNo": 11,
+          "newNo": 11
+        },
+        {
+          "kind": "context",
+          "text": "export function midpoint(a: Point, b: Point): Point {",
+          "oldNo": 12,
+          "newNo": 12
+        },
+        {
+          "kind": "context",
+          "text": "  return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };",
+          "oldNo": 13,
+          "newNo": 13
+        },
+        {
+          "kind": "context",
+          "text": "}",
+          "oldNo": 14,
+          "newNo": 14
+        },
+        {
+          "kind": "context",
+          "text": "",
+          "oldNo": 15,
+          "newNo": 15
+        },
+        {
+          "kind": "remove",
+          "text": "export const ORIGIN: Point = { x: 0, y: 0 };",
+          "oldNo": 16,
+          "newNo": null
+        },
+        {
+          "kind": "add",
+          "text": "export const ORIGIN: Readonly<Point> = { x: 0, y: 0 };",
+          "oldNo": null,
+          "newNo": 16
+        }
+      ]
+    }
+  ],
+  "left": "export interface Point {\n  x: number;\n  y: number;\n}\n\nexport function distance(a: Point, b: Point): number {\n  const dx = a.x - b.x;\n  const dy = a.y - b.y;\n  return Math.sqrt(dx * dx + dy * dy);\n}\n\nexport function midpoint(a: Point, b: Point): Point {\n  return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };\n}\n\nexport const ORIGIN: Point = { x: 0, y: 0 };\n",
+  "right": "export interface Point {\n  x: number;\n  y: number;\n}\n\nexport function distance(a: Point, b: Point): number {\n  const dx = a.x - b.x;\n  const dy = a.y - b.y;\n  return Math.hypot(dx, dy);\n}\n\nexport function midpoint(a: Point, b: Point): Point {\n  return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };\n}\n\nexport const ORIGIN: Readonly<Point> = { x: 0, y: 0 };\n",
+  "stats": {
+    "added": 2,
+    "removed": 2
+  },
+  "limits": {
+    "patchTruncated": false,
+    "contentOmitted": false,
+    "highlightOff": false
+  },
+  "resultHash": "ea3e3a0cf754811b385ad8efc0c495ef719dd162",
+  "oldPath": "src/geometry.ts"
+}

@@ -5,8 +5,6 @@ const root = import.meta.dirname;
 
 export default defineConfig({
   test: {
-    // The renderer project has no tests yet; later plans add them.
-    passWithNoTests: true,
     projects: [
       {
         test: {

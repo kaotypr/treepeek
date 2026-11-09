@@ -1,0 +1,18 @@
+{
+  "path": "assets/logo.png",
+  "status": "modified",
+  "binary": true,
+  "hunks": [],
+  "left": null,
+  "right": null,
+  "stats": {
+    "added": 0,
+    "removed": 0
+  },
+  "limits": {
+    "patchTruncated": false,
+    "contentOmitted": false,
+    "highlightOff": false
+  },
+  "resultHash": "5dce6f7050fdff82d3e52a6ccebe39ee4024b06a"
+}

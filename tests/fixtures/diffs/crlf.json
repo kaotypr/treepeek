@@ -1,0 +1,70 @@
+{
+  "path": "notes/windows.txt",
+  "status": "modified",
+  "binary": false,
+  "hunks": [
+    {
+      "oldStart": 1,
+      "oldLines": 5,
+      "newStart": 1,
+      "newLines": 5,
+      "header": "@@ -1,5 +1,5 @@",
+      "lines": [
+        {
+          "kind": "context",
+          "text": "first line\r",
+          "oldNo": 1,
+          "newNo": 1
+        },
+        {
+          "kind": "remove",
+          "text": "second line\r",
+          "oldNo": 2,
+          "newNo": null
+        },
+        {
+          "kind": "add",
+          "text": "second line, edited\r",
+          "oldNo": null,
+          "newNo": 2
+        },
+        {
+          "kind": "context",
+          "text": "third line\r",
+          "oldNo": 3,
+          "newNo": 3
+        },
+        {
+          "kind": "remove",
+          "text": "fourth line\r",
+          "oldNo": 4,
+          "newNo": null
+        },
+        {
+          "kind": "add",
+          "text": "fourth line",
+          "oldNo": null,
+          "newNo": 4
+        },
+        {
+          "kind": "context",
+          "text": "fifth line\r",
+          "oldNo": 5,
+          "newNo": 5
+        }
+      ]
+    }
+  ],
+  "left": "first line\r\nsecond line\r\nthird line\r\nfourth line\r\nfifth line\r\n",
+  "right": "first line\r\nsecond line, edited\r\nthird line\r\nfourth line\nfifth line\r\n",
+  "stats": {
+    "added": 2,
+    "removed": 2
+  },
+  "limits": {
+    "patchTruncated": false,
+    "contentOmitted": false,
+    "highlightOff": false
+  },
+  "resultHash": "8c502fa34e0bb4d9d320a3a0e66da009c91c32ca"
+}

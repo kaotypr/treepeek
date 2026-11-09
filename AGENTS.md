@@ -19,7 +19,9 @@ the same pull request and say why.
 | Lint and format check | `bun run lint` (fix formatting with `bun run format`) |
 | Type-check | `bun run typecheck` |
 | Unit tests | `bun run test` |
-| End-to-end tests (needs `bun run build`) | `bun run test:e2e` |
+| Build the development pages into `out-lab/` | `bun run build:lab` |
+| End-to-end tests (needs `bun run build` and `bun run build:lab`) | `bun run test:e2e` |
+| Diff viewer performance (local machine only) | `TREEPEEK_PERF=1 bun run test:e2e tests/e2e/diff-lab.perf.spec.ts` |
 | Package an unsigned arm64 app | `bun run package` |
 | End-to-end tests against the package | `APP_TARGET=packaged bun run test:e2e` |
 
@@ -75,6 +77,8 @@ the code to the process that owns it.
 | Logger and redaction | `src/shared/log.ts` |
 | Domain types | `src/shared/domain/` |
 | Unified-patch parser | `src/shared/diff/parse-patch.ts` |
+| Diff viewer (`DiffView`, the `@pierre/diffs` adapter, the highlight worker) | `src/renderer/diff-view/`; why this library: `docs/decisions/diff-viewer.md` |
+| Diff lab (development only; never in `bun run build`) | `src/renderer/dev/diff-lab/`, fixtures from `scripts/make-diff-fixtures.ts` |
 | Size limits, scan depth, git concurrency | `src/shared/constants.ts` |
 | Color tokens (light and dark) | `src/renderer/styles/tokens.css`, window background in `src/shared/theme.ts` |
 | Fuses, signing, minimum macOS | `electron-builder.yml` |
@@ -107,7 +111,10 @@ These carry Electron's security checklist into this codebase. Breaking one is a 
 - Content comes only from the bundled app through `app://`. No remote URLs, no `file://`,
   no CDN assets, no remote fonts.
 - The CSP stays strict: `default-src 'self'`, no `unsafe-eval`, no `unsafe-inline`, no
-  remote origins. Only `bun run dev` relaxes it (in `electron.vite.config.ts`).
+  remote origins. Only `bun run dev` relaxes it (in `electron.vite.config.ts`), so check
+  anything that writes inline styles in the lab build or the built app, not the dev
+  server. The diff viewer library's `<style>` tags and `style` attributes are re-applied
+  through the CSSOM (`renderer/diff-view/pierre/csp-styles.ts`).
 - The `app://` handler serves files from `out/renderer` and nothing else.
 - Navigation, redirects, new windows and webview attachment stay denied for every web
   contents; browser permission requests stay denied.

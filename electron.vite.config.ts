@@ -23,56 +23,63 @@ function devServerCsp(): Plugin {
   };
 }
 
-export default defineConfig({
-  // Main and the core service build together. Two Rollup inputs into `out/` give
-  // `out/main/index.js` and `out/core/index.js`; code both use lands in `out/chunks/`.
-  // (electron-vite's `?modulePath` import would emit the core service as a hashed file
-  // inside `out/main/`, which is not the layout the packaging and tests expect.)
-  main: {
-    build: {
-      outDir: resolve(root, "out"),
-      // `out/` also holds the preload and renderer builds; never wipe it from here.
-      emptyOutDir: false,
-      rollupOptions: {
-        input: {
-          "main/index": resolve(root, "src/main/index.ts"),
-          "core/index": resolve(root, "src/core/index.ts"),
-        },
-        output: {
-          entryFileNames: "[name].js",
-          chunkFileNames: "chunks/[name]-[hash].js",
-        },
-      },
-    },
-  },
-  preload: {
-    build: {
-      outDir: resolve(root, "out/preload"),
-      // Windows run sandboxed, and a sandboxed preload must be a single CommonJS file.
-      externalizeDeps: false,
-      rollupOptions: {
-        input: { index: resolve(root, "src/preload/index.ts") },
-        output: {
-          format: "cjs",
-          entryFileNames: "[name].cjs",
-          inlineDynamicImports: true,
+export default defineConfig(({ mode }) => {
+  // `--mode lab` builds the development pages (the diff lab) into their own folder, so the
+  // production build in `out/` never contains them. See `src/renderer/dev/lab-enabled.ts`.
+  const out = resolve(root, mode === "lab" ? "out-lab" : "out");
+  return {
+    // Main and the core service build together. Two Rollup inputs into `out/` give
+    // `out/main/index.js` and `out/core/index.js`; code both use lands in `out/chunks/`.
+    // (electron-vite's `?modulePath` import would emit the core service as a hashed file
+    // inside `out/main/`, which is not the layout the packaging and tests expect.)
+    main: {
+      build: {
+        outDir: out,
+        // `out/` also holds the preload and renderer builds; never wipe it from here.
+        emptyOutDir: false,
+        rollupOptions: {
+          input: {
+            "main/index": resolve(root, "src/main/index.ts"),
+            "core/index": resolve(root, "src/core/index.ts"),
+          },
+          output: {
+            entryFileNames: "[name].js",
+            chunkFileNames: "chunks/[name]-[hash].js",
+          },
         },
       },
     },
-  },
-  renderer: {
-    root: resolve(root, "src/renderer"),
-    base: "./",
-    resolve: {
-      alias: { "@renderer": resolve(root, "src/renderer") },
-    },
-    plugins: [react(), tailwindcss(), devServerCsp()],
-    build: {
-      outDir: resolve(root, "out/renderer"),
-      minify: "esbuild",
-      rollupOptions: {
-        input: { index: resolve(root, "src/renderer/index.html") },
+    preload: {
+      build: {
+        outDir: resolve(out, "preload"),
+        // Windows run sandboxed, and a sandboxed preload must be a single CommonJS file.
+        externalizeDeps: false,
+        rollupOptions: {
+          input: { index: resolve(root, "src/preload/index.ts") },
+          output: {
+            format: "cjs",
+            entryFileNames: "[name].cjs",
+            inlineDynamicImports: true,
+          },
+        },
       },
     },
-  },
+    renderer: {
+      root: resolve(root, "src/renderer"),
+      base: "./",
+      resolve: {
+        alias: { "@renderer": resolve(root, "src/renderer") },
+      },
+      plugins: [react(), tailwindcss(), devServerCsp()],
+      // The highlight worker is a module worker that splits its grammars into chunks.
+      worker: { format: "es" },
+      build: {
+        outDir: resolve(out, "renderer"),
+        minify: "esbuild",
+        rollupOptions: {
+          input: { index: resolve(root, "src/renderer/index.html") },
+        },
+      },
+    },
+  };
 });
