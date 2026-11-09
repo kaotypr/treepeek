@@ -219,6 +219,28 @@ With Apple Git 2.50.1 the same three took 648, 359 and 7 ms. One `hash-object` p
 hashes the whole tree in chunks of 256 paths; without hashing, the rest of the time is
 `ls-files`, `lstat` of every file and the binary sniff of each file's first 8 KB.
 
+## Windows: vibrancy, folder drops and the test-only open hook
+
+Scan windows put the macOS `sidebar` material behind the timeline and navigator
+(`vibrancy: "sidebar"` with a clear window background; the preview and toolbar stay
+opaque). It is left off when "Reduce transparency" is on (`nativeTheme.prefersReducedTransparency`,
+followed live), and in background-mode test runs, whose windows are invisible anyway, so
+the contrast checks there measure the opaque surfaces. Not yet checked by eye: test runs
+never show windows, and macOS 13 (the minimum) was not available.
+
+A folder dropped on the Dock icon arrives as `app.on("open-file")`, which Treepeek
+registers before `ready` (a drop can launch the app). The packaged app declares folders
+(`public.folder`) in `CFBundleDocumentTypes` with `LSHandlerRank` `None`, so it accepts the
+drop without claiming to open folders by default (`extendInfo` in `electron-builder.yml`).
+A folder dropped on a window is read by the preload (`webUtils.getPathForFile`; pages
+cannot see a file's path) and opened through `folder.open`. Neither drop can be synthesized
+in a background test run; both are unverified end to end.
+
+End-to-end tests open folders through `TREEPEEK_E2E_OPEN` (paths joined with `:`), which
+main honours only when `NODE_ENV` is `test`. electron-vite leaves `process.env.NODE_ENV`
+alone in the main bundle (checked in `out/main/index.js`), so the packaged app reads it at
+run time like the other test variables.
+
 ## Testing the packaged app
 
 The fuses turn off `EnableNodeCliInspectArguments`, and Playwright's `_electron.launch`
