@@ -15,6 +15,7 @@ import { useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef } from
 import { DIFF_LIMITS } from "../../../shared/constants";
 import type { FileDiff } from "../../../shared/domain/diff";
 import { DIFF_THEMES, highlightPool } from "../highlight/pool";
+import { oldLineToNew, resultLineToNew } from "../line-map";
 import type { DiffAnchor, DiffViewMode, DiffViewProps, DiffViewTheme } from "../types";
 import { applyStylesUnderCsp } from "./csp-styles";
 import "./pierre.css";
@@ -71,12 +72,12 @@ export function PierreDiffView({ diff, mode, theme, ref }: DiffViewProps) {
     ref,
     () => ({
       scrollToHunk: (index) => {
-        const live = liveRef.current;
         const target = hunkStart(diff, index);
-        if (live === null || target === null) return;
-        const position = live.instance.getLinePosition(target.line, pierreSide(target.side));
-        if (position === undefined) return;
-        live.virtualizer.scrollTo({ top: fileTop(live) + position.top });
+        if (target === null) return;
+        settleScroll(liveRef, (live) => {
+          const position = live.instance.getLinePosition(target.line, pierreSide(target.side));
+          return position === undefined ? null : fileTop(live) + position.top;
+        });
       },
       getAnchor: () => {
         const live = liveRef.current;
@@ -84,18 +85,25 @@ export function PierreDiffView({ diff, mode, theme, ref }: DiffViewProps) {
         const viewportTop = live.virtualizer.getScrollTop() - fileTop(live);
         const anchor = live.instance.getNumericScrollAnchor(Math.max(0, viewportTop));
         if (anchor === undefined) return null;
-        const side = anchor.side === "deletions" ? "old" : "new";
-        return { side, line: anchor.lineNumber, offset: anchor.top - viewportTop };
+        const offset = anchor.top - viewportTop;
+        if (anchor.side !== "deletions") return { side: "new", line: anchor.lineNumber, offset };
+        // The library names a context line by its left-side number; anchors prefer the right.
+        if (mode === "result") {
+          return { side: "new", line: resultLineToNew(diff, anchor.lineNumber), offset };
+        }
+        const newLine = oldLineToNew(diff, anchor.lineNumber);
+        return newLine === null
+          ? { side: "old", line: anchor.lineNumber, offset }
+          : { side: "new", line: newLine, offset };
       },
       restoreAnchor: (anchor: DiffAnchor) => {
-        const live = liveRef.current;
-        if (live === null) return;
         const side = mode === "result" ? "new" : anchor.side;
-        const position =
-          live.instance.getLinePosition(anchor.line, pierreSide(side)) ??
-          live.instance.getLinePosition(anchor.line, pierreSide(side === "new" ? "old" : "new"));
-        if (position === undefined) return;
-        live.virtualizer.scrollTo({ top: fileTop(live) + position.top - anchor.offset });
+        settleScroll(liveRef, (live) => {
+          const position =
+            live.instance.getLinePosition(anchor.line, pierreSide(side)) ??
+            live.instance.getLinePosition(anchor.line, pierreSide(side === "new" ? "old" : "new"));
+          return position === undefined ? null : fileTop(live) + position.top - anchor.offset;
+        });
       },
     }),
     [diff, mode],
@@ -132,6 +140,33 @@ function viewOptions(
       : { diffIndicators: "classic" }),
   };
 }
+
+/**
+ * Scrolls to `target` and keeps it there while the virtualizer settles: right after a
+ * mount its content is not sized yet (the first scroll is clamped), and rows it renders
+ * replace estimated heights with measured ones, which moves the target. Stops once the
+ * target holds for two frames in a row, or after `MAX_SETTLE_FRAMES`.
+ */
+function settleScroll(
+  liveRef: { readonly current: Live | null },
+  target: (live: Live) => number | null,
+  frame = 0,
+  previous: number | null = null,
+): void {
+  const live = liveRef.current;
+  if (live === null) return;
+  const top = target(live);
+  if (top === null) return;
+  const off = Math.abs(live.virtualizer.getScrollTop() - top) > 1;
+  if (off) live.virtualizer.scrollTo({ top });
+  if (!off && previous === top) return;
+  if (frame >= MAX_SETTLE_FRAMES) return;
+  requestAnimationFrame(() => {
+    if (liveRef.current === live) settleScroll(liveRef, target, frame + 1, top);
+  });
+}
+
+const MAX_SETTLE_FRAMES = 30;
 
 function fileTop(live: Live): number {
   return live.virtualizer.getOffsetInScrollContainer(live.host);
