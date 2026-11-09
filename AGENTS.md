@@ -21,6 +21,7 @@ the same pull request and say why.
 | Unit tests | `bun run test` |
 | Build the development pages into `out-lab/` | `bun run build:lab` |
 | End-to-end tests (needs `bun run build` and `bun run build:lab`) | `bun run test:e2e` |
+| Watch an end-to-end run (windows shown normally) | `TREEPEEK_E2E_SHOW=1 bun run test:e2e` |
 | Diff viewer performance (local machine only) | `TREEPEEK_PERF=1 bun run test:e2e tests/e2e/diff-lab.perf.spec.ts` |
 | Package an unsigned arm64 app | `bun run package` |
 | End-to-end tests against the package | `APP_TARGET=packaged bun run test:e2e` |
@@ -168,6 +169,10 @@ These carry Electron's security checklist into this codebase. Breaking one is a 
 - End-to-end tests live in `tests/e2e` and drive the app over the DevTools protocol
   (`tests/e2e/support/app.ts`), against the built app or the package. A change to a
   security rule, the protocol, the preload or the window setup needs an end-to-end test.
+- End-to-end runs use background mode by default (`TREEPEEK_E2E_BACKGROUND`, set by the
+  launcher): windows are transparent, click-through and never focused, and the app has no
+  Dock icon, so a run never interrupts the person at the machine. Tests must not depend on
+  the window having OS focus.
 - Every bug fix comes with a test that fails without the fix.
 - A test must be able to fail: assert behaviour, not that code ran.
 

@@ -3,7 +3,15 @@ import { tmpdir } from "node:os";
 import { delimiter, isAbsolute, join } from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import { contrastViolations } from "./support/a11y";
-import { type App, launchApp, newUserDataDir, spawnApp, target, waitFor } from "./support/app";
+import {
+  type App,
+  launchApp,
+  newUserDataDir,
+  showWindows,
+  spawnApp,
+  target,
+  waitFor,
+} from "./support/app";
 
 type Probe = { states: Array<[string, number]> };
 
@@ -47,6 +55,17 @@ test.describe(`foundation (${target})`, () => {
     expect(page.url()).toBe("app://treepeek/index.html");
     await expect(page).toHaveTitle("Treepeek");
     await expect(page.getByRole("heading", { name: "Treepeek" })).toBeVisible();
+  });
+
+  test("test runs keep the window in the background without focus", async () => {
+    test.skip(showWindows, "TREEPEEK_E2E_SHOW=1 shows windows normally");
+    // Shown to Chromium, so it renders like a real window...
+    expect(await app.page.evaluate(() => document.visibilityState)).toBe("visible");
+    // ...yet main sees it transparent and unfocused. `document.hasFocus()` cannot tell:
+    // Playwright emulates focus for every page it attaches to.
+    expect(app.log("main")).toContain(
+      'window shown in background mode {"focused":false,"opacity":0}',
+    );
   });
 
   test("window.treepeek is frozen and exposes only contract methods", async () => {

@@ -10,12 +10,22 @@ import { APP_URL, isAppUrl, registerAppProtocol, registerAppSchemePrivileged } f
 import { SettingsStore } from "./settings";
 import { loadLoginEnv } from "./shell-env";
 import { applyAppearance, onThemeChanged, resolvedTheme, themeState } from "./theme";
-import { createWindow, focusWindow, guardWebContents, WindowRegistry } from "./windows";
+import {
+  createWindow,
+  focusWindow,
+  guardWebContents,
+  inBackgroundMode,
+  WindowRegistry,
+} from "./windows";
 
 // Tests point the app at a throwaway profile. Must happen before anything reads userData,
 // including the single-instance lock, which is scoped to it.
 const userDataOverride = process.env.TREEPEEK_USER_DATA_DIR;
 if (userDataOverride) app.setPath("userData", userDataOverride);
+
+// End-to-end runs: no Dock icon, and the app never becomes the active one, so it cannot
+// take keyboard focus from whatever the person running the tests is doing.
+if (inBackgroundMode() && process.platform === "darwin") app.setActivationPolicy("accessory");
 
 registerAppSchemePrivileged();
 
@@ -69,6 +79,15 @@ function start(): void {
       preload: join(outDir, "preload", "index.cjs"),
       url: devServerUrl ?? APP_URL,
     });
+    if (inBackgroundMode()) {
+      // The page cannot see OS focus (DevTools emulates it), so main reports what it sees.
+      win.once("show", () =>
+        log.info("window shown in background mode", {
+          focused: win.isFocused(),
+          opacity: win.getOpacity(),
+        }),
+      );
+    }
     win.webContents.on("did-finish-load", () => {
       emitToWindow(win, mainEvents["theme.changed"], themeState(), log);
       const state = supervisor.state;
