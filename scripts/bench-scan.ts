@@ -254,6 +254,12 @@ function breakdown(measure: Measure): string {
     .join(", ");
 }
 
+/** Bun runs these scripts; the app's core service runs on Electron's Node. */
+function runtime(): string {
+  const bun = process.versions.bun;
+  return bun ? `Bun ${bun}` : `Node ${process.version}`;
+}
+
 function machine(): string {
   const cpu = spawnSync("sysctl", ["-n", "machdep.cpu.brand_string"], { encoding: "utf8" });
   const memory = spawnSync("sysctl", ["-n", "hw.memsize"], { encoding: "utf8" });
@@ -277,7 +283,7 @@ async function main(): Promise<void> {
     log();
     log(`- Run: ${new Date().toISOString().replace(/\.\d{3}Z$/, "Z")}`);
     log(`- Machine: ${machine()}`);
-    log(`- Git: ${testGitVersion()} (\`${testGitPath()}\`); Bun ${Bun.version}`);
+    log(`- Git: ${testGitVersion()} (\`${testGitPath()}\`); ${runtime()}`);
     log(
       `- Fixtures: ${REPOSITORIES.length} repositories × (main + ${WORKTREES_PER_REPOSITORY} worktrees), ${BASE_FILES} files and ${BASE_COMMITS} commits each, built in ${(scanBuildMs / 1000).toFixed(1)} s; ${options.untracked} untracked files, written in ${(untrackedBuildMs / 1000).toFixed(1)} s`,
     );
