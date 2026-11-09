@@ -200,7 +200,8 @@ function start(): void {
   settings.onChange((next, previous) => {
     if (next.appearance !== previous.appearance) applyAppearance(next.appearance);
     if (next.gitPath !== previous.gitPath) supervisor.setGitPathOverride(next.gitPath);
-    if (next.recentFolders !== previous.recentFolders) refreshMenu();
+    // Every settings write parses a fresh list, so compare contents, not identity.
+    if (next.recentFolders.join("\0") !== previous.recentFolders.join("\0")) refreshMenu();
   });
 
   onThemeChanged((state) => {
