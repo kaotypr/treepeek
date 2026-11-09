@@ -1,4 +1,5 @@
 import * as v from "valibot";
+import { COMPARISON_KINDS } from "../domain/compare";
 import { IPC_ERROR_CODES } from "./result";
 
 /**
@@ -12,6 +13,12 @@ export const MAX_PATH_LENGTH = 4096;
 
 /** An absolute path sent by the renderer: not empty, bounded. Handlers check the rest. */
 export const PathSchema = v.pipe(v.string(), v.minLength(1), v.maxLength(MAX_PATH_LENGTH));
+
+/** Longest ref accepted from the renderer (a base ref or a start), as the git layer checks. */
+export const MAX_REF_LENGTH = 200;
+
+/** A commit-ish typed by a person: not empty, bounded. The git layer checks the rest. */
+export const RefSchema = v.pipe(v.string(), v.minLength(1), v.maxLength(MAX_REF_LENGTH));
 
 const Count = v.pipe(v.number(), v.integer(), v.minValue(0));
 
@@ -62,4 +69,48 @@ export const ScanProblemSchema = v.object({
   path: v.string(),
   code: v.picklist(IPC_ERROR_CODES),
   message: v.string(),
+});
+
+export const ComparisonKindSchema = v.picklist(COMPARISON_KINDS);
+
+export const ContentSideSchema = v.variant("kind", [
+  v.object({ kind: v.literal("commit"), oid: v.string() }),
+  v.object({ kind: v.literal("index") }),
+  v.object({ kind: v.literal("workingTree") }),
+  v.object({ kind: v.literal("empty") }),
+]);
+
+export const ComparisonSchema = v.object({
+  kind: ComparisonKindSchema,
+  left: ContentSideSchema,
+  right: ContentSideSchema,
+});
+
+export const FileChangeSchema = v.object({
+  path: v.string(),
+  oldPath: v.exactOptional(v.string()),
+  status: v.picklist([
+    "added",
+    "modified",
+    "deleted",
+    "renamed",
+    "copied",
+    "typeChanged",
+    "untracked",
+  ]),
+  category: v.exactOptional(v.picklist(["staged", "unstaged", "untracked"])),
+  left: ContentSideSchema,
+  right: ContentSideSchema,
+  leftOid: v.exactOptional(v.string()),
+  rightOid: v.exactOptional(v.string()),
+  resultHash: v.string(),
+  binary: v.boolean(),
+});
+
+export const ComparisonResultSchema = v.object({
+  comparison: ComparisonSchema,
+  files: v.array(FileChangeSchema),
+  commits: v.exactOptional(Count),
+  contained: v.exactOptional(v.boolean()),
+  note: v.exactOptional(v.string()),
 });

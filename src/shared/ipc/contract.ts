@@ -1,11 +1,14 @@
 import * as v from "valibot";
+import { LISTABLE_COMPARISON_KINDS } from "../domain/compare";
 import { GIT_PROBLEMS } from "../domain/git";
 import { AppearanceSchema, SettingsPatchSchema, SettingsSchema } from "../settings";
 import { type CallMap, defineCall, defineEvent, type EventMap } from "./define";
 import {
   CheckoutSchema,
+  ComparisonResultSchema,
   FolderNodeSchema,
   PathSchema,
+  RefSchema,
   RepositorySchema,
   ScanProblemSchema,
   TimelineEntrySchema,
@@ -15,7 +18,7 @@ import {
  * Bumped whenever a channel's shape changes. Main, the core service and every window come
  * from one build, so a mismatch means something is badly wrong; it is still checked.
  */
-export const CONTRACT_VERSION = 3;
+export const CONTRACT_VERSION = 4;
 
 const Empty = v.strictObject({});
 
@@ -141,9 +144,28 @@ export const coreCalls = {
     name: "start.override",
     request: v.strictObject({
       checkoutPath: PathSchema,
-      commit: v.nullable(v.pipe(v.string(), v.minLength(1), v.maxLength(200))),
+      commit: v.nullable(RefSchema),
     }),
     response: CheckoutSchema,
+  }),
+  /**
+   * A checkout's file list for one comparison kind (every kind but `sinceViewed`), with the
+   * sides it compares, commit count, "contained" and a note. `ref` is the base for `base`
+   * and is required there. `startOverride` is a start for this call alone (not stored),
+   * used by `review`, `worktree`, `incoming` and `sincePrevious`. A kind the checkout
+   * cannot have (no start, no HEAD, no direct previous checkout, no upstream, no common
+   * ancestor) fails `refNotFound` with `detail.unavailable` naming why; a malformed or
+   * missing `ref` fails `invalidRequest`.
+   */
+  "comparison.list": defineCall({
+    name: "comparison.list",
+    request: v.strictObject({
+      checkoutPath: PathSchema,
+      kind: v.picklist(LISTABLE_COMPARISON_KINDS),
+      ref: v.exactOptional(RefSchema),
+      startOverride: v.exactOptional(RefSchema),
+    }),
+    response: ComparisonResultSchema,
   }),
 } as const satisfies CallMap;
 

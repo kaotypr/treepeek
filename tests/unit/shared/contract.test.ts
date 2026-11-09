@@ -3,6 +3,12 @@ import * as v from "valibot";
 import { afterEach, describe, expect, expectTypeOf, it } from "vitest";
 import { CoreRpc, type PortLike } from "../../../src/core/rpc";
 import { MainRouter } from "../../../src/main/router";
+import type {
+  Comparison,
+  ComparisonResult,
+  ContentSide,
+  FileChange,
+} from "../../../src/shared/domain/compare";
 import type { GitState } from "../../../src/shared/domain/git";
 import type {
   Checkout,
@@ -15,12 +21,16 @@ import {
   type CallMap,
   type CheckoutSchema,
   CONTRACT_VERSION,
+  type ComparisonResultSchema,
+  type ComparisonSchema,
+  type ContentSideSchema,
   CoreToMainSchema,
   coreCalls,
   coreEvents,
   defineCall,
   defineEvent,
   err,
+  type FileChangeSchema,
   type FolderNodeSchema,
   type GitStateSchema,
   IPC_ERROR_CODES,
@@ -177,7 +187,7 @@ describe("contract", () => {
         state: { found: false, problem: "xcodeMissing" },
       }).success,
     ).toBe(true);
-    expect(CONTRACT_VERSION).toBe(3);
+    expect(CONTRACT_VERSION).toBe(4);
   });
 
   it("carries paths.validate between main and core, bounded", () => {
@@ -200,6 +210,63 @@ describe("contract", () => {
     expectTypeOf<v.InferOutput<typeof RepositorySchema>>().toEqualTypeOf<Repository>();
     expectTypeOf<v.InferOutput<typeof TimelineEntrySchema>>().toEqualTypeOf<TimelineEntry>();
     expectTypeOf<v.InferOutput<typeof ScanProblemSchema>>().toEqualTypeOf<ScanProblem>();
+  });
+
+  it("keeps the comparison schemas and the domain types in step", () => {
+    expectTypeOf<v.InferOutput<typeof ContentSideSchema>>().toEqualTypeOf<ContentSide>();
+    expectTypeOf<v.InferOutput<typeof ComparisonSchema>>().toEqualTypeOf<Comparison>();
+    expectTypeOf<v.InferOutput<typeof FileChangeSchema>>().toEqualTypeOf<FileChange>();
+    expectTypeOf<v.InferOutput<typeof ComparisonResultSchema>>().toEqualTypeOf<ComparisonResult>();
+  });
+
+  it("validates comparison.list requests strictly and bounds the refs", () => {
+    const list = coreCalls["comparison.list"];
+    expect(parseRequest(list, { checkoutPath: "/x", kind: "review" }).ok).toBe(true);
+    expect(
+      parseRequest(list, { checkoutPath: "/x", kind: "base", ref: "main", startOverride: "v1" }).ok,
+    ).toBe(true);
+    for (const bad of [
+      { checkoutPath: "/x", kind: "sinceViewed" },
+      { checkoutPath: "/x", kind: "nope" },
+      { checkoutPath: "/x" },
+      { checkoutPath: "", kind: "review" },
+      { checkoutPath: "/x", kind: "base", ref: "" },
+      { checkoutPath: "/x", kind: "base", ref: "a".repeat(201) },
+      { checkoutPath: "/x", kind: "review", startOverride: "a".repeat(201) },
+      { checkoutPath: "/x", kind: "review", ref: undefined },
+      { checkoutPath: "/x", kind: "review", extra: true },
+    ]) {
+      expect(parseRequest(list, bad).ok, JSON.stringify(bad)).toBe(false);
+    }
+    const response = list.response;
+    const file: FileChange = {
+      path: "a b.txt",
+      oldPath: "a.txt",
+      status: "renamed",
+      left: { kind: "commit", oid: "a".repeat(40) },
+      right: { kind: "workingTree" },
+      leftOid: "b".repeat(40),
+      resultHash: "c".repeat(40),
+      binary: false,
+    };
+    const result: ComparisonResult = {
+      comparison: { kind: "review", left: file.left, right: file.right },
+      files: [file, { ...file, oldPath: undefined as never }],
+      commits: 2,
+      contained: false,
+    };
+    expect(v.safeParse(response, { ...result, files: [file] }).success).toBe(true);
+    expect(v.safeParse(response, result).success).toBe(false);
+    expect(
+      v.safeParse(response, { ...result, files: [{ ...file, status: "unmerged" }] }).success,
+    ).toBe(false);
+    expect(
+      v.safeParse(response, {
+        ...result,
+        files: [],
+        comparison: { kind: "working", left: { kind: "commit" }, right: { kind: "index" } },
+      }).success,
+    ).toBe(false);
   });
 
   it("validates the session, scan and start-override requests strictly", () => {
