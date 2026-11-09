@@ -3,6 +3,7 @@ import { pairKey } from "../cache/repo-cache";
 import type { RepositoryResources } from "../cache/shared-state";
 import { GitError, GitParseError } from "../git/errors";
 import { parseNulList } from "../git/parse/ls-files";
+import { parseRawDiff, type RawEntry } from "../git/parse/raw-diff";
 import { runGit } from "../git/run";
 
 /**
@@ -96,6 +97,71 @@ export function changedPaths(
         { signal, timeoutMs: options.timeoutMs ?? GIT_SCAN_TIMEOUT_MS },
       );
       return parseNulList(output.stdout);
+    },
+    options.signal,
+  );
+}
+
+/**
+ * `merge-base <a> <b>`: the best common ancestor, or `null` when the two histories share
+ * none (exit 1).
+ */
+export function mergeBase(
+  repo: RepositoryResources,
+  a: string,
+  b: string,
+  options: QueryOptions,
+): Promise<string | null> {
+  checkOid(a);
+  checkOid(b);
+  if (a === b) return Promise.resolve(a);
+  return repo.cache.immutable.mergeBases.get(
+    pairKey(a, b),
+    async (signal) => {
+      const output = await runGit(repo.commonDir, ["merge-base", a, b], {
+        signal,
+        timeoutMs: options.timeoutMs ?? GIT_SCAN_TIMEOUT_MS,
+        okExitCodes: [0, 1],
+      });
+      if (output.code === 1) return null;
+      const oid = output.stdout.toString("utf8").trim();
+      if (!OID.test(oid)) throw new GitParseError("merge-base", `got "${oid.slice(0, 80)}"`);
+      return oid;
+    },
+    options.signal,
+  );
+}
+
+/**
+ * The flags of every comparison file list (git-service command catalogue): status, both
+ * modes and both full blob ids in one pass, renames found. `--no-abbrev` prints whole ids
+ * whatever the object format.
+ */
+export const RAW_DIFF_FLAGS: readonly string[] = Object.freeze([
+  "--raw",
+  "-z",
+  "--find-renames",
+  "--no-abbrev",
+]);
+
+/** `diff --raw -z --find-renames --no-abbrev <left> <right>` between two commits. */
+export function rawDiff(
+  repo: RepositoryResources,
+  left: string,
+  right: string,
+  options: QueryOptions,
+): Promise<readonly RawEntry[]> {
+  checkOid(left);
+  checkOid(right);
+  if (left === right) return Promise.resolve([]);
+  return repo.cache.immutable.rawDiffs.get(
+    pairKey(left, right),
+    async (signal) => {
+      const output = await runGit(repo.commonDir, ["diff", ...RAW_DIFF_FLAGS, left, right, "--"], {
+        signal,
+        timeoutMs: options.timeoutMs ?? GIT_SCAN_TIMEOUT_MS,
+      });
+      return parseRawDiff(output.stdout);
     },
     options.signal,
   );

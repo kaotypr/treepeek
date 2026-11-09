@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import type { Logger } from "../../shared/log";
-import type { CoreState, RepositoryResources } from "../cache/shared-state";
+import type { CheckoutResources, CoreState, RepositoryResources } from "../cache/shared-state";
 import { GitError } from "../git/errors";
 import type { CoreRpc } from "../rpc";
 import type { ScanContext } from "../scan/context";
@@ -201,6 +201,34 @@ export class Session {
       if (found) return found;
     }
     return null;
+  }
+
+  /**
+   * The previous checkout of the same repository on the last finished scan's timeline:
+   * `null` when it has none, `undefined` when no finished scan has placed `scanned` yet.
+   */
+  async predecessorOf(scanned: ScannedCheckout): Promise<ScannedCheckout | null | undefined> {
+    const entry = this.#lastScan?.timeline.find(
+      (item) => item.checkoutPath === scanned.checkout.path,
+    );
+    if (!entry) return undefined;
+    if (entry.predecessor === null) return null;
+    return (await this.findCheckout(entry.predecessor)) ?? null;
+  }
+
+  /**
+   * The shared resources of a scanned checkout and its repository, held by this session
+   * until they leave its scan or it closes (a comparison can run before the scan that found
+   * the checkout has finished).
+   */
+  resourcesOf(scanned: ScannedCheckout): {
+    repo: RepositoryResources;
+    checkout: CheckoutResources;
+  } {
+    const repo = this.#acquireRepository(scanned.commonDir);
+    const checkout = this.#services.state.acquireCheckout(this.id, scanned.checkout.path);
+    this.#checkouts.add(scanned.checkout.path);
+    return { repo, checkout };
   }
 
   /**

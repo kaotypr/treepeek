@@ -13,7 +13,10 @@ test.describe(`scan (${target})`, () => {
   test.beforeAll(async () => {
     fx = fixture();
     const repo = fx.repo("app").commit({ "README.md": "hello\n" });
-    repo.worktree("app-feature", { from: "main" }).commit({ "feature.txt": "f\n" });
+    repo
+      .worktree("app-feature", { from: "main" })
+      .commit({ "feature.txt": "f\n" })
+      .write({ "notes.txt": "uncommitted\n" });
     app = await launchApp();
   });
 
@@ -59,6 +62,32 @@ test.describe(`scan (${target})`, () => {
     expect(result.order).toEqual(["result", "scan.checkout", "scan.checkout", "scan.done"]);
     expect(result.checkouts.sort()).toEqual([fx.path("app"), fx.path("app-feature")].sort());
     expect(result.finished).toEqual({ sequences: [1, 2], names: ["app"] });
+  });
+
+  test("lists a checkout's review comparison over the port", async () => {
+    const listed = await app.page.evaluate(
+      (checkoutPath) => window.treepeek.core.comparison.list({ checkoutPath, kind: "review" }),
+      fx.path("app-feature"),
+    );
+    expect(listed.ok).toBe(true);
+    if (!listed.ok) return;
+    expect(listed.value.comparison).toMatchObject({
+      kind: "review",
+      right: { kind: "workingTree" },
+    });
+    expect(listed.value.files.map((file) => [file.path, file.status])).toEqual([
+      ["feature.txt", "added"],
+      ["notes.txt", "untracked"],
+    ]);
+    expect(listed.value.commits).toBe(1);
+  });
+
+  test("refuses a comparison for a path outside the scan", async () => {
+    const refused = await app.page.evaluate(
+      (checkoutPath) => window.treepeek.core.comparison.list({ checkoutPath, kind: "working" }),
+      fx.outside,
+    );
+    expect(refused).toMatchObject({ ok: false, error: { code: "notInScan" } });
   });
 
   test("refuses a start override for a path outside the scan", async () => {

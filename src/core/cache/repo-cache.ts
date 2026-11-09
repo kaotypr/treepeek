@@ -13,6 +13,7 @@ import { Memo } from "./memo";
 export const IMMUTABLE_CACHE_LIMITS = Object.freeze({
   ancestry: 20_000,
   counts: 20_000,
+  mergeBases: 20_000,
   nameLists: 2_000,
   rawDiffs: 500,
 });
@@ -48,6 +49,8 @@ export interface ImmutableCaches {
   readonly ancestry: Memo<string, boolean>;
   /** `rev-list --count left..right`, keyed `pairKey(left, right)`. */
   readonly counts: Memo<string, number>;
+  /** `merge-base a b` (`null` without a common ancestor), keyed `pairKey(a, b)`. */
+  readonly mergeBases: Memo<string, string | null>;
   /** `diff --name-only -z left right`, keyed `pairKey(left, right)`. */
   readonly nameLists: Memo<string, readonly string[]>;
   /** `diff --raw … left right` between two commits, keyed `pairKey(left, right)`. */
@@ -92,6 +95,7 @@ export class RepoCache {
     this.immutable = {
       ancestry: new Memo(bound.ancestry),
       counts: new Memo(bound.counts),
+      mergeBases: new Memo(bound.mergeBases),
       nameLists: new Memo(bound.nameLists),
       rawDiffs: new Memo(bound.rawDiffs),
     };

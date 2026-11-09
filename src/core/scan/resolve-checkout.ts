@@ -37,7 +37,8 @@ export interface ScannedCheckout {
  * start and history counts.
  *
  * - The status is read fresh on every scan: until live refresh watches the working tree,
- *   nothing else would tell the cache that a file changed.
+ *   nothing else would tell the cache that a file changed. The checkout's comparison lists
+ *   that involve the index or the working tree are dropped for the same reason.
  * - The reflog start is cached, and read again when `logs/HEAD` changes (a commit, a
  *   recreated worktree, an expiry); the origin URL likewise follows the config files.
  * - The start goes through `resolveIdentity`, so a stored override wins and an expired
@@ -53,6 +54,9 @@ export async function resolveCheckout(
   if (repo.cache.statuses.peek(candidate.path) !== undefined) {
     repo.cache.statuses.delete(candidate.path);
   }
+  // Comparison lists that involve the index or the working tree go stale the same way, so
+  // a scan never shows an old list for a checkout it has just read again.
+  repo.cache.comparisons(candidate.path).clear();
   const [status, originUrl] = await Promise.all([
     readStatus(repo, candidate.path, signal),
     readOrigin(repo, candidate, signal),
