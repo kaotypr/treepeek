@@ -70,6 +70,18 @@ export class RepoCache {
   readonly worktreeList = new Memo<string, readonly WorktreeEntry[]>();
   /** Each checkout's start from its reflog (or `null`), keyed by checkout path. */
   readonly starts = new Memo<string, ReflogEntry | null>();
+  /** Each checkout's `origin` URL (or `null`), keyed by checkout path. */
+  readonly origins = new Memo<string, string | null>();
+  /**
+   * The filesystem stamps (`stamps.ts`) the entries of `worktreeList`, `starts` and
+   * `origins` were read under, with the same keys. A scan reads an entry again when its
+   * stamp changed: until live refresh watches repositories, nothing else invalidates them.
+   */
+  readonly stamps = Object.freeze({
+    worktreeList: new Map<string, string>(),
+    starts: new Map<string, string>(),
+    origins: new Map<string, string>(),
+  });
   /** Each checkout's `status --porcelain=v2` summary, keyed by checkout path. */
   readonly statuses = new Memo<string, StatusSummary>();
   readonly #comparisons = new Map<string, Memo<string, readonly FileChange[]>>();
@@ -100,6 +112,7 @@ export class RepoCache {
     const hit = (cache: MutableCache) => INVALIDATED_BY[cache].some((kind) => kinds.includes(kind));
     if (hit("worktreeList")) this.worktreeList.clear();
     if (hit("start")) this.starts.delete(checkoutPath);
+    if (kinds.includes("removed")) this.origins.delete(checkoutPath);
     if (hit("status")) this.statuses.delete(checkoutPath);
     if (kinds.includes("removed")) this.#comparisons.delete(checkoutPath);
     else if (hit("comparison")) this.#comparisons.get(checkoutPath)?.clear();
@@ -109,6 +122,7 @@ export class RepoCache {
   invalidateRepository(kinds: readonly ChangeKind[]): void {
     const checkouts = new Set([
       ...this.starts.keys(),
+      ...this.origins.keys(),
       ...this.statuses.keys(),
       ...this.#comparisons.keys(),
     ]);
@@ -120,6 +134,8 @@ export class RepoCache {
   clear(): void {
     this.worktreeList.clear();
     this.starts.clear();
+    this.origins.clear();
+    for (const stamps of Object.values(this.stamps)) stamps.clear();
     this.statuses.clear();
     this.#comparisons.clear();
     for (const memo of Object.values(this.immutable)) memo.clear();
