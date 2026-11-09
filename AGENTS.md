@@ -11,20 +11,22 @@ the same pull request and say why.
 
 ## Commands
 
-| Task                                                             | Command                                                            |
-| ---------------------------------------------------------------- | ------------------------------------------------------------------ |
-| Install (exact, from the lockfile)                               | `bun install --frozen-lockfile`                                    |
-| Run with hot reload                                              | `bun run dev`                                                      |
-| Build `out/`                                                     | `bun run build`                                                    |
-| Lint and format check                                            | `bun run lint` (fix formatting with `bun run format`)              |
-| Type-check                                                       | `bun run typecheck`                                                |
-| Unit tests                                                       | `bun run test`                                                     |
-| Build the development pages into `out-lab/`                      | `bun run build:lab`                                                |
-| End-to-end tests (needs `bun run build` and `bun run build:lab`) | `bun run test:e2e`                                                 |
-| Watch an end-to-end run (windows shown normally)                 | `TREEPEEK_E2E_SHOW=1 bun run test:e2e`                             |
-| Diff viewer performance (local machine only)                     | `TREEPEEK_PERF=1 bun run test:e2e tests/e2e/diff-lab.perf.spec.ts` |
-| Package an unsigned arm64 app                                    | `bun run package`                                                  |
-| End-to-end tests against the package                             | `APP_TARGET=packaged bun run test:e2e`                             |
+| Task                                                             | Command                                                               |
+| ---------------------------------------------------------------- | --------------------------------------------------------------------- |
+| Install (exact, from the lockfile)                               | `bun install --frozen-lockfile`                                       |
+| Run with hot reload                                              | `bun run dev`                                                         |
+| Build `out/`                                                     | `bun run build`                                                       |
+| Lint and format check                                            | `bun run lint` (fix formatting with `bun run format`)                 |
+| Type-check                                                       | `bun run typecheck`                                                   |
+| Unit tests                                                       | `bun run test`                                                        |
+| Build the development pages into `out-lab/`                      | `bun run build:lab`                                                   |
+| End-to-end tests (needs `bun run build` and `bun run build:lab`) | `bun run test:e2e`                                                    |
+| Watch an end-to-end run (windows shown normally)                 | `TREEPEEK_E2E_SHOW=1 bun run test:e2e`                                |
+| Diff viewer performance (local machine only)                     | `TREEPEEK_PERF=1 bun run test:e2e tests/e2e/diff-lab.perf.spec.ts`    |
+| Package an unsigned arm64 app                                    | `bun run package`                                                     |
+| End-to-end tests against the package                             | `APP_TARGET=packaged bun run test:e2e`                                |
+| Prototype parity check (local only)                              | `TREEPEEK_PROTOTYPE=<prototype checkout> bun scripts/parity-check.ts` |
+| Scan benchmark (local only; results in `docs/platform-notes.md`) | `bun scripts/bench-scan.ts`                                           |
 
 Bun installs packages and runs scripts only; Electron, electron-vite and electron-builder
 run on Node. Do not add `--bun` to scripts. `docs/platform-notes.md` records the platform
@@ -63,26 +65,40 @@ the code to the process that owns it.
 
 ### Where things live
 
-| Concern                                                                     | File                                                                         |
-| --------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
-| IPC contract (every channel), error codes                                   | `src/shared/ipc/contract.ts`, `src/shared/ipc/result.ts`                     |
-| Main ↔ core and port message schemas                                        | `src/shared/ipc/messages.ts`                                                 |
-| Window creation and navigation guards                                       | `src/main/windows.ts` (`createWindow`, `guardWebContents`)                   |
-| `app://` protocol and the CSP                                               | `src/main/protocol.ts`, plus the meta tag in `src/renderer/index.html`       |
-| Trusted-sender check, permissions, startup                                  | `src/main/index.ts`                                                          |
-| Main call routing and validation                                            | `src/main/router.ts`, `src/main/ipc.ts` (`handleMain`)                       |
-| Core service lifecycle and restarts                                         | `src/main/core-supervisor.ts`                                                |
-| Core call routing, validation, cancellation                                 | `src/core/rpc.ts` (`CoreRpc`)                                                |
-| The preload API                                                             | `src/preload/index.ts`, its type in `src/shared/ipc/api.ts`                  |
-| Settings file                                                               | `src/main/settings.ts`, schema in `src/shared/settings.ts`                   |
-| Logger and redaction                                                        | `src/shared/log.ts`                                                          |
-| Domain types                                                                | `src/shared/domain/`                                                         |
-| Unified-patch parser                                                        | `src/shared/diff/parse-patch.ts`                                             |
-| Diff viewer (`DiffView`, the `@pierre/diffs` adapter, the highlight worker) | `src/renderer/diff-view/`; why this library: `docs/decisions/diff-viewer.md` |
-| Diff lab (development only; never in `bun run build`)                       | `src/renderer/dev/diff-lab/`, fixtures from `scripts/make-diff-fixtures.ts`  |
-| Size limits, scan depth, git concurrency                                    | `src/shared/constants.ts`                                                    |
-| Color tokens (light and dark)                                               | `src/renderer/styles/tokens.css`, window background in `src/shared/theme.ts` |
-| Fuses, signing, minimum macOS                                               | `electron-builder.yml`                                                       |
+| Concern                                                                     | File                                                                            |
+| --------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| IPC contract (every channel), error codes                                   | `src/shared/ipc/contract.ts`, `src/shared/ipc/result.ts`                        |
+| Main ↔ core and port message schemas                                        | `src/shared/ipc/messages.ts`                                                    |
+| Window creation and navigation guards                                       | `src/main/windows.ts` (`createWindow`, `guardWebContents`)                      |
+| `app://` protocol and the CSP                                               | `src/main/protocol.ts`, plus the meta tag in `src/renderer/index.html`          |
+| Trusted-sender check, permissions, startup                                  | `src/main/index.ts`                                                             |
+| Main call routing and validation                                            | `src/main/router.ts`, `src/main/ipc.ts` (`handleMain`)                          |
+| Core service lifecycle and restarts                                         | `src/main/core-supervisor.ts`                                                   |
+| Core call routing, validation, cancellation                                 | `src/core/rpc.ts` (`CoreRpc`)                                                   |
+| Core sessions and the path rule                                             | `src/core/sessions/` (`session.ts`, `path-rule.ts`)                             |
+| Core call handlers (scan, comparisons, diffs, start overrides)              | `src/core/handlers/`                                                            |
+| Running git: `runGit`, `gitArgs`, hardening, the queue                      | `src/core/git/run.ts`, `src/core/git/queue.ts`, `src/core/git/env.ts`           |
+| The git allowlist (subcommands and refused options)                         | `src/core/git/guard.ts`                                                         |
+| Finding git, the minimum version, the login `PATH`                          | `src/core/git/discover.ts`, `src/shared/domain/git.ts`, `src/main/shell-env.ts` |
+| Switching off a repository's own filter drivers                             | `src/core/git/untrusted-config.ts`                                              |
+| Git output parsers                                                          | `src/core/git/parse/`                                                           |
+| Long-lived `cat-file` and `hash-object` processes                           | `src/core/git/cat-file.ts`, `src/core/git/hash-object.ts`                       |
+| The scan (walk, validation, checkouts, timeline)                            | `src/core/scan/`                                                                |
+| Comparison kinds, file lists, `resultHash`                                  | `src/core/compare/`                                                             |
+| One file's diff (patch, contents, limits)                                   | `src/core/diff/`                                                                |
+| Local store (worktree identity, start overrides)                            | `src/core/store/`                                                               |
+| Caches and per-repository state shared by sessions                          | `src/core/cache/` (`CoreState` in `shared-state.ts`)                            |
+| The preload API                                                             | `src/preload/index.ts`, its type in `src/shared/ipc/api.ts`                     |
+| Settings file                                                               | `src/main/settings.ts`, schema in `src/shared/settings.ts`                      |
+| Logger and redaction                                                        | `src/shared/log.ts`                                                             |
+| Domain types                                                                | `src/shared/domain/`                                                            |
+| Unified-patch parser                                                        | `src/shared/diff/parse-patch.ts`                                                |
+| Diff viewer (`DiffView`, the `@pierre/diffs` adapter, the highlight worker) | `src/renderer/diff-view/`; why this library: `docs/decisions/diff-viewer.md`    |
+| Diff lab (development only; never in `bun run build`)                       | `src/renderer/dev/diff-lab/`, fixtures from `scripts/make-diff-fixtures.ts`     |
+| Size limits, scan depth, git concurrency                                    | `src/shared/constants.ts`                                                       |
+| Color tokens (light and dark)                                               | `src/renderer/styles/tokens.css`, window background in `src/shared/theme.ts`    |
+| Fuses, signing, minimum macOS                                               | `electron-builder.yml`                                                          |
+| Repository fixtures for tests                                               | `tests/support/git-fixture.ts`                                                  |
 
 ## IPC rules
 
@@ -145,6 +161,18 @@ These carry Electron's security checklist into this codebase. Breaking one is a 
   overridden.
 - Respect the limits in `src/shared/constants.ts`: output caps, `GIT_CONCURRENCY`,
   timeouts. Return `outputTooLarge` or `timeout` instead of growing without bound.
+- Every git call goes through `runGit`; a long-lived process builds its arguments with
+  `gitArgs`. Both pass the guard (`src/core/git/guard.ts`): an allowlist of read-only
+  subcommands (and of `config` flags), plus options refused everywhere because they write,
+  run programs or undo the pins. A new subcommand needs an allowlist entry; a new
+  subcommand or flag needs a test (`tests/unit/core/git/guard.test.ts` for the guard) and
+  a row, with the Git version that added it, in the flag table of `docs/platform-notes.md`.
+- A repository's own config may name filter drivers; `runGit` switches them off on every
+  call (`untrusted-config.ts`). Submodules stay pinned to `--ignore-submodules=dirty` and
+  `--submodule=short`, so Git never runs inside a submodule, whose config those overrides
+  do not reach. Do not pass flags that undo either.
+- `TREEPEEK_GIT=/path/to/git` selects the git the unit tests and the scripts use, for
+  example an older git to check the minimum version.
 
 ## Code style
 
