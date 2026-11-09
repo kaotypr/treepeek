@@ -41,6 +41,7 @@ let specs: FixtureRepo;
 let specsWt: FixtureCheckout;
 let app: FixtureRepo;
 let feature: FixtureCheckout;
+let empty: FixtureRepo;
 let start: string;
 let head: string;
 let created: Harness;
@@ -120,6 +121,10 @@ beforeAll(async () => {
   symlinkSync(fx.outsidePath("secret.txt"), join(feature.path, "escape"));
   symlinkSync("dir", join(feature.path, "dir-link"));
   symlinkSync("keep.txt", join(feature.path, "keep-link"));
+
+  empty = fx.repo("empty");
+  empty.write({ "e.txt": "e\n" }).stage(["e.txt"]);
+  empty.write({ "f.txt": "f\n" });
 
   created = harness();
   client = created.open(1).client;
@@ -424,6 +429,25 @@ describe("diff.file matches git", () => {
       expect(diff.status, file.path).toBe(file.status);
       expect(diff.oldPath, file.path).toBe(file.oldPath);
     }
+  });
+});
+
+describe("diff.file in a checkout without commits", () => {
+  it("diffs from nothing: the empty tree for review, an unborn HEAD for staged", async () => {
+    const results = [
+      await diffed(empty, { kind: "review", path: "e.txt" }),
+      await diffed(empty, { kind: "working", path: "e.txt", category: "staged" }),
+      await diffed(empty, { kind: "review", path: "f.txt" }),
+    ];
+    for (const diff of results) {
+      expect(diff).toMatchObject({ left: "", stats: { added: 1, removed: 0 } });
+      expect(diff.hunks).toHaveLength(1);
+    }
+    expect(results.map((diff) => [diff.status, diff.right])).toEqual([
+      ["added", "e\n"],
+      ["added", "e\n"],
+      ["untracked", "f\n"],
+    ]);
   });
 });
 

@@ -4,7 +4,9 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { parseRawDiff } from "../../../../src/core/git/parse/raw-diff";
 import { parseStatusV2 } from "../../../../src/core/git/parse/status-v2";
 import { runGit } from "../../../../src/core/git/run";
+import type { FileDiff } from "../../../../src/shared/domain/diff";
 import { resetGitRuntime, setTestGit } from "../../../support/core-git";
+import { harness } from "../../../support/core-session";
 import { gitIn } from "../../../support/git";
 import { type Fixture, type FixtureRepo, fixture } from "../../../support/git-fixture";
 
@@ -96,6 +98,50 @@ describe("submodules inside a checkout", () => {
     const patch = (await runGit(outer.path, ["diff", "-U3", "HEAD"], options)).stdout.toString();
     expect(patch).toContain(`+Subproject commit ${moved}`);
     expect(patch).not.toContain("s.txt");
+    expect(existsSync(marker)).toBe(false);
+  });
+
+  it("diffs a gitlink as Git shows it, the submodule's commit on each side", async () => {
+    const recorded = outer.rev("HEAD:sub");
+    const moved = subGit(["rev-parse", "HEAD"]).trim();
+    const created = harness();
+    try {
+      const { client } = created.open(1);
+      await client.call("session.open", { scanRoot: fx.root });
+      await client.call("scan.start", { requestId: "scan" });
+      await client.waitForEvent("scan.done");
+      const diff = (request: object) =>
+        client.call<FileDiff>("diff.file", {
+          requestId: JSON.stringify(request),
+          checkoutPath: outer.path,
+          path: "sub",
+          ...request,
+        });
+      // From the start, before the submodule was added: a new gitlink.
+      const review = await diff({ comparison: { kind: "review" } });
+      expect(review).toMatchObject({
+        ok: true,
+        value: { status: "added", binary: false, left: "", right: `Subproject commit ${moved}\n` },
+      });
+      // Index → disk: the commit the submodule's checkout moved to.
+      const unstaged = await diff({ comparison: { kind: "working" }, category: "unstaged" });
+      expect(unstaged).toMatchObject({
+        ok: true,
+        value: {
+          status: "modified",
+          left: `Subproject commit ${recorded}\n`,
+          right: `Subproject commit ${moved}\n`,
+          stats: { added: 1, removed: 1 },
+        },
+      });
+      if (!unstaged.ok) return;
+      expect(unstaged.value.hunks[0]?.lines.map((line) => [line.kind, line.text])).toEqual([
+        ["remove", `Subproject commit ${recorded}`],
+        ["add", `Subproject commit ${moved}`],
+      ]);
+    } finally {
+      created.dispose();
+    }
     expect(existsSync(marker)).toBe(false);
   });
 });
