@@ -2,14 +2,24 @@ import * as v from "valibot";
 import { GIT_PROBLEMS } from "../domain/git";
 import { AppearanceSchema, SettingsPatchSchema, SettingsSchema } from "../settings";
 import { type CallMap, defineCall, defineEvent, type EventMap } from "./define";
+import {
+  CheckoutSchema,
+  FolderNodeSchema,
+  PathSchema,
+  RepositorySchema,
+  ScanProblemSchema,
+  TimelineEntrySchema,
+} from "./domain-schemas";
 
 /**
  * Bumped whenever a channel's shape changes. Main, the core service and every window come
  * from one build, so a mismatch means something is badly wrong; it is still checked.
  */
-export const CONTRACT_VERSION = 2;
+export const CONTRACT_VERSION = 3;
 
 const Empty = v.strictObject({});
+
+const RequestId = v.pipe(v.string(), v.minLength(1), v.maxLength(128));
 
 export const SqliteProbeSchema = v.object({
   available: v.boolean(),
@@ -88,15 +98,75 @@ export const coreCalls = {
       sqlite: SqliteProbeSchema,
     }),
   }),
-  /** Aborts the call that was sent with this `requestId`; it then resolves `cancelled`. */
+  /**
+   * Aborts the call that was sent with this `requestId`; it then resolves `cancelled`. Work
+   * a call goes on with after answering (a scan streaming checkouts) stops too.
+   */
   "request.cancel": defineCall({
     name: "request.cancel",
-    request: v.strictObject({ requestId: v.pipe(v.string(), v.minLength(1), v.maxLength(128)) }),
+    request: v.strictObject({ requestId: RequestId }),
     response: v.object({}),
+  }),
+  /**
+   * Sets the folder this window scans: an absolute path to an existing folder, kept as its
+   * real path. Opening again replaces the scan root and stops a scan in progress. Fails
+   * `gitNotFound` or `gitTooOld` while no usable git is found.
+   */
+  "session.open": defineCall({
+    name: "session.open",
+    request: v.strictObject({ scanRoot: PathSchema }),
+    response: v.object({ sessionId: v.string(), gitVersion: v.string() }),
+  }),
+  /**
+   * Scans the session's root. Answers with the folder tree as soon as the walk finishes;
+   * then each checkout arrives as `scan.checkout` the moment it resolves, and `scan.done`
+   * ends the scan. `request.cancel` with the same `requestId`, a newer `scan.start`, or
+   * the window closing stops it and its git processes.
+   */
+  "scan.start": defineCall({
+    name: "scan.start",
+    request: v.strictObject({ requestId: RequestId }),
+    response: v.object({
+      scanRoot: v.string(),
+      folders: v.array(FolderNodeSchema),
+      depthLimit: v.number(),
+    }),
+  }),
+  /**
+   * Sets (a commit-ish) or clears (`null`) a checkout's start, stored locally per worktree
+   * identity, and answers with the checkout as it is now: its start is the override, or the
+   * reflog start again once cleared. `refNotFound` when the commit-ish names no commit.
+   */
+  "start.override": defineCall({
+    name: "start.override",
+    request: v.strictObject({
+      checkoutPath: PathSchema,
+      commit: v.nullable(v.pipe(v.string(), v.minLength(1), v.maxLength(200))),
+    }),
+    response: CheckoutSchema,
   }),
 } as const satisfies CallMap;
 
-export const coreEvents = {} as const satisfies EventMap;
+export const coreEvents = {
+  /** One checkout of the running scan, sent the moment it resolves. */
+  "scan.checkout": defineEvent({
+    name: "scan.checkout",
+    payload: CheckoutSchema,
+  }),
+  /**
+   * The running scan finished. `problems` lists folders that could not be read as checkouts
+   * for a reason the person should see (Git's `safe.directory` refusal, a timeout).
+   */
+  "scan.done": defineEvent({
+    name: "scan.done",
+    payload: v.object({
+      timeline: v.array(TimelineEntrySchema),
+      repositories: v.array(RepositorySchema),
+      durationMs: v.number(),
+      problems: v.array(ScanProblemSchema),
+    }),
+  }),
+} as const satisfies EventMap;
 
 export type MainCalls = typeof mainCalls;
 export type MainEvents = typeof mainEvents;

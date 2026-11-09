@@ -1,5 +1,6 @@
 import * as v from "valibot";
 import { GitStateSchema } from "./contract";
+import { PathSchema } from "./domain-schemas";
 import { IpcErrorSchema } from "./result";
 
 /** Electron IPC channel names between a window's preload and main. Nothing else is used. */
@@ -22,6 +23,9 @@ export const InvokeEnvelopeSchema = v.object({
 
 const WindowId = v.pipe(v.number(), v.integer(), v.minValue(1));
 
+/** Most paths one `paths.validate` asks about. */
+export const MAX_VALIDATE_PATHS = 256;
+
 export const MainToCoreSchema = v.variant("type", [
   v.object({
     type: v.literal("core.init"),
@@ -38,6 +42,15 @@ export const MainToCoreSchema = v.variant("type", [
   v.object({ type: v.literal("session.close"), windowId: WindowId }),
   /** The git binary setting changed: discovery runs again with the new override. */
   v.object({ type: v.literal("settings.gitPath"), path: v.nullable(v.string()) }),
+  /**
+   * Main asks whether paths lie in some window's scan, before an "Open in…" action. The
+   * core service answers with a `paths.validate` carrying the same `id`.
+   */
+  v.object({
+    type: v.literal("paths.validate"),
+    id: v.pipe(v.number(), v.integer(), v.minValue(1)),
+    paths: v.pipe(v.array(PathSchema), v.maxLength(MAX_VALIDATE_PATHS)),
+  }),
 ]);
 export type MainToCore = v.InferOutput<typeof MainToCoreSchema>;
 
@@ -46,6 +59,12 @@ export const CoreToMainSchema = v.variant("type", [
   v.object({ type: v.literal("core.health"), id: v.number() }),
   /** After every discovery; main forwards it to every window as `git.state`. */
   v.object({ type: v.literal("git.state"), state: GitStateSchema }),
+  /** One boolean per asked path, in order: `true` only when some session's scan holds it. */
+  v.object({
+    type: v.literal("paths.validate"),
+    id: v.number(),
+    valid: v.pipe(v.array(v.boolean()), v.maxLength(MAX_VALIDATE_PATHS)),
+  }),
 ]);
 export type CoreToMain = v.InferOutput<typeof CoreToMainSchema>;
 
