@@ -75,6 +75,22 @@ afterAll(() => {
   fx.cleanup();
 });
 
+/**
+ * Runs `work` and counts the `hash-object --stdin-paths` processes it starts. The config
+ * listing that precedes a batch process's first start is not one of them.
+ */
+async function countHashers<T>(work: () => Promise<T>): Promise<{ result: T; spawned: number }> {
+  let spawned = 0;
+  const stop = observeSpawns((event) => {
+    if (event.type === "spawn" && event.args.includes("--stdin-paths")) spawned += 1;
+  });
+  try {
+    return { result: await work(), spawned };
+  } finally {
+    stop();
+  }
+}
+
 describe("stdinPathLine", () => {
   it("sends ordinary paths as they are and C-quotes the ones a line cannot carry", () => {
     expect(stdinPathLine("a b/ç.txt")).toBe("a b/ç.txt");
@@ -91,9 +107,10 @@ describe("HashObjectBatch", () => {
   it("returns the same ids as git hash-object for every kind of path, with one process", async () => {
     setTestGit();
     const batch = hasher();
-    const before = spawnCount();
-    const hashes = await batch.hash(NAMES, { signal: signal() });
-    expect(spawnCount() - before).toBe(1);
+    const { result: hashes, spawned } = await countHashers(() =>
+      batch.hash(NAMES, { signal: signal() }),
+    );
+    expect(spawned).toBe(1);
     for (const name of NAMES) expect(hashes.get(name), JSON.stringify(name)).toBe(gitHash(name));
     expect(hashes.size).toBe(NAMES.length);
   });
@@ -147,17 +164,15 @@ describe("HashObjectBatch", () => {
     app.write({ "before.txt": "before\n", "locked.txt": "locked\n", "after.txt": "after\n" });
     chmodSync(join(app.path, "locked.txt"), 0o000);
     const batch = hasher();
-    let spawned = 0;
-    const stop = observeSpawns((event) => {
-      if (event.type === "spawn") spawned += 1;
-    });
-    let hashes: Map<string, string>;
+    let counted: { result: Map<string, string>; spawned: number };
     try {
-      hashes = await batch.hash(["before.txt", "locked.txt", "after.txt"], { signal: signal() });
+      counted = await countHashers(() =>
+        batch.hash(["before.txt", "locked.txt", "after.txt"], { signal: signal() }),
+      );
     } finally {
-      stop();
       chmodSync(join(app.path, "locked.txt"), 0o644);
     }
+    const { result: hashes, spawned } = counted;
     expect([...hashes.keys()].sort()).toEqual(["after.txt", "before.txt"]);
     expect(hashes.get("before.txt")).toBe(gitHash("before.txt"));
     expect(hashes.get("after.txt")).toBe(gitHash("after.txt"));
@@ -195,9 +210,10 @@ describe("HashObjectBatch", () => {
     for (let index = 0; index < 600; index += 1) files[`many/f${index}.txt`] = `${index}\n`;
     app.write(files);
     const batch = hasher();
-    const before = spawnCount();
-    const hashes = await batch.hash(Object.keys(files), { signal: signal() });
-    expect(spawnCount() - before).toBe(1);
+    const { result: hashes, spawned } = await countHashers(() =>
+      batch.hash(Object.keys(files), { signal: signal() }),
+    );
+    expect(spawned).toBe(1);
     expect(hashes.size).toBe(600);
     expect(hashes.get("many/f599.txt")).toBe(gitHash("many/f599.txt"));
     expect(hashes.get("many/f0.txt")).toBe(gitHash("many/f0.txt"));

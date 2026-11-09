@@ -29,6 +29,14 @@ function script(name: string, body: string): string {
   return file;
 }
 
+/**
+ * A fake git that answers the config listing every call starts with (an empty one) and
+ * runs `body` for everything else.
+ */
+function fakeGit(name: string, body: string): string {
+  return script(name, `case " $* " in *" config --show-scope "*) exit 0 ;; esac\n${body}`);
+}
+
 function isAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
@@ -68,6 +76,7 @@ describe("gitArgs", () => {
       "/repo",
       ...HARDENING_CONFIG.flatMap((entry) => ["-c", entry]),
       "status",
+      "--ignore-submodules=dirty",
       "--porcelain=v2",
     ]);
     expect(HARDENING_CONFIG).toEqual([
@@ -81,7 +90,7 @@ describe("gitArgs", () => {
     ]);
   });
 
-  it("pins external diff, textconv, colour and prefixes right after `diff`", () => {
+  it("pins external diff, textconv, colour, prefixes and submodule handling right after `diff`", () => {
     const args = gitArgs("/repo", ["diff", "--raw", "HEAD", "--", "a"]);
     const at = args.indexOf("diff");
     expect(args.slice(at)).toEqual([
@@ -91,6 +100,8 @@ describe("gitArgs", () => {
       "--no-color",
       "--src-prefix=a/",
       "--dst-prefix=b/",
+      "--ignore-submodules=dirty",
+      "--submodule=short",
       "--raw",
       "HEAD",
       "--",
@@ -228,7 +239,7 @@ describe("runGit", () => {
   });
 
   it("never runs more than GIT_CONCURRENCY processes at once", async () => {
-    setFakeGit(script("slow.sh", "sleep 0.1\necho ok"));
+    setFakeGit(fakeGit("slow.sh", "sleep 0.1\necho ok"));
     let running = 0;
     let peak = 0;
     const stop = observeSpawns((event) => {
@@ -249,7 +260,7 @@ describe("runGit", () => {
 
   it("passes the argument array and environment through without a shell", async () => {
     setFakeGit(
-      script(
+      fakeGit(
         "echo.sh",
         `printf '%s\\0' "$@"; printf 'LOCKS=%s;LC=%s' "$GIT_OPTIONAL_LOCKS" "$LC_ALL"`,
       ),

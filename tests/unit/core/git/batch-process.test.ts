@@ -46,6 +46,19 @@ async function waitUntil(condition: () => boolean): Promise<void> {
   }, 5_000);
 }
 
+/**
+ * Counts the batch processes started until `stop()`. Every request first makes sure the
+ * folder's config overrides are current, which here (not a repository) means listing the
+ * config again; those short-lived listings are not batch processes.
+ */
+function countBatchSpawns(): { count(): number; stop(): void } {
+  let spawned = 0;
+  const stop = observeSpawns((event) => {
+    if (event.type === "spawn" && event.args.includes("--batch-command")) spawned += 1;
+  });
+  return { count: () => spawned, stop };
+}
+
 /** Sends `line` and returns the line read back. */
 function echo(batch: BatchProcess, line: string, signal = new AbortController().signal) {
   return batch.request(
@@ -95,11 +108,15 @@ describe("BatchProcess", () => {
     setFakeGit(echoGit());
     const echoer = batch();
     expect(echoer.pid).toBeNull();
-    const before = spawnCount();
-    for (let index = 0; index < 50; index += 1) {
-      expect(await echo(echoer, `line ${index}`)).toBe(`line ${index}`);
+    const spawns = countBatchSpawns();
+    try {
+      for (let index = 0; index < 50; index += 1) {
+        expect(await echo(echoer, `line ${index}`)).toBe(`line ${index}`);
+      }
+    } finally {
+      spawns.stop();
     }
-    expect(spawnCount() - before).toBe(1);
+    expect(spawns.count()).toBe(1);
     expect(echoer.pid).not.toBeNull();
   });
 
@@ -123,9 +140,13 @@ describe("BatchProcess", () => {
     controller.abort();
     await expect(hanging).rejects.toMatchObject({ code: "cancelled" });
     await waitUntil(() => !isAlive(pid));
-    const before = spawnCount();
-    expect(await echo(echoer, "after")).toBe("after");
-    expect(spawnCount() - before).toBe(1);
+    const spawns = countBatchSpawns();
+    try {
+      expect(await echo(echoer, "after")).toBe("after");
+    } finally {
+      spawns.stop();
+    }
+    expect(spawns.count()).toBe(1);
     expect(echoer.pid).not.toBe(pid);
   });
 
@@ -167,9 +188,13 @@ describe("BatchProcess", () => {
     const pid = echoer.pid ?? -1;
     process.kill(-pid, "SIGKILL");
     await expect(hanging).rejects.toBeInstanceOf(GitError);
-    const before = spawnCount();
-    expect(await echo(echoer, "again")).toBe("again");
-    expect(spawnCount() - before).toBe(1);
+    const spawns = countBatchSpawns();
+    try {
+      expect(await echo(echoer, "again")).toBe("again");
+    } finally {
+      spawns.stop();
+    }
+    expect(spawns.count()).toBe(1);
   });
 
   it("closes after BATCH_IDLE_MS without requests (fake timers)", async () => {

@@ -65,8 +65,9 @@ describe("CatFileBatch", () => {
     const batch = catFile(app.commonDir);
     const names = Array.from({ length: 40 }, (_, index) => `f${index}.txt`);
     let spawned = 0;
+    // The config listing that precedes the first start is not a cat-file process.
     const stop = observeSpawns((event) => {
-      if (event.type === "spawn") spawned += 1;
+      if (event.type === "spawn" && event.args.includes("cat-file")) spawned += 1;
     });
     try {
       for (let index = 0; index < 1_000; index += 1) {
@@ -192,7 +193,7 @@ describe("CatFileBatch", () => {
     // Kill git the moment it starts, before it can answer the request already written.
     let killed = -1;
     const stop = observeSpawns((event) => {
-      if (event.type === "spawn" && killed === -1) {
+      if (event.type === "spawn" && killed === -1 && event.args.includes("cat-file")) {
         killed = event.pid;
         process.kill(-event.pid, "SIGKILL");
       }
@@ -205,6 +206,7 @@ describe("CatFileBatch", () => {
       stop();
     }
     expect(killed).toBeGreaterThan(0);
+    // The config listing is kept from the first read, so only cat-file starts again.
     const before = spawnCount();
     const read = await batch.read(oid("f4.txt"), 1_000, { signal: signal() });
     expect(read.size).toBe(blobs.get("f4.txt")?.length);

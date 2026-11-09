@@ -60,6 +60,9 @@ describe("assertAllowedSubcommand", () => {
       // The batch processes: blob size before body, and a symlink's target text.
       ["cat-file", "--batch-command"],
       ["hash-object", "--stdin"],
+      // The listing the filter-driver overrides come from.
+      ["config", "--show-scope", "--show-origin", "--list", "-z"],
+      ["config", "-l", "--null", "--includes"],
     ];
     for (const args of catalogue) expect(refusal(args), args.join(" ")).toBeNull();
   });
@@ -83,6 +86,17 @@ describe("assertAllowedSubcommand", () => {
       ["hash-object", "-tw", "--stdin"],
       ["hash-object", "-w", "--stdin-paths"],
       ["hash-object", "--stdin-paths", "-w"],
+      // `config` lists and nothing else: a key, a value or any writing flag is refused.
+      ["config"],
+      ["config", "--show-scope", "-z"],
+      ["config", "--list", "core.fsmonitor"],
+      ["config", "--list", "--file", "/tmp/x"],
+      ["config", "--list", "--add", "a.b", "c"],
+      ["config", "--list", "--unset", "a.b"],
+      ["config", "--list", "--edit"],
+      ["config", "--list", "--global"],
+      ["config", "--list", "--", "x"],
+      ["config", "set", "a.b", "c"],
     ]) {
       expect(refusal(args), args.join(" ")).toBeInstanceOf(GitError);
     }
@@ -113,9 +127,16 @@ describe("assertAllowedSubcommand", () => {
       "--no-prefix",
       "--src-prefix=x/",
       "--dst-prefix=y/",
+      // `runGit` keeps out of submodules' working trees; these would reach back in.
+      "--ignore-submodules=none",
+      "--ignore-submodules",
+      "--submodule=diff",
+      "--recurse-submodules",
     ]) {
       expect(refusal(["diff", option, "HEAD"]), option).toBeInstanceOf(GitError);
     }
+    expect(refusal(["status", "--ignore-submodules=none"])).toBeInstanceOf(GitError);
+    expect(refusal(["ls-files", "--recurse-submodules"])).toBeInstanceOf(GitError);
     expect(refusal(["cat-file", "--filters", "HEAD:x"])).toBeInstanceOf(GitError);
   });
 

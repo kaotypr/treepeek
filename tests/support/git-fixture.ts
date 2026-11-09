@@ -56,8 +56,9 @@ export type Files = Readonly<Record<string, FileSpec>>;
  * - `showSignature`: `log.showSignature` with `gpg.program`; fires on a signed commit
  *   (`signedCommit()`) when the reflog or log is read.
  * - `filter`: a `filter=evil` attribute with `filter.evil.clean`/`smudge` (status, diff and
- *   `hash-object` read working-tree files through it). Not in the default set: the design's
- *   hardening does not cover it yet.
+ *   `hash-object` read working-tree files through it). `runGit` switches off drivers from a
+ *   repository's own config (`core/git/untrusted-config.ts`); the vector stays opt-in so the
+ *   default set keeps matching the design's list.
  */
 export type MaliciousVector =
   | "fsmonitor"

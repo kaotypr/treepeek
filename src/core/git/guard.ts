@@ -43,12 +43,35 @@ const ALLOWED: ReadonlyMap<string, ArgumentCheck> = new Map<string, ArgumentChec
   ["worktree", (rest) => (rest[0] === "list" ? null : "only `worktree list` is read-only")],
   ["remote", (rest) => (rest[0] === "get-url" ? null : "only `remote get-url` is read-only")],
   ["reflog", (rest) => (rest[0] === "show" ? null : "only `reflog show` is read-only")],
+  ["config", checkConfigListing],
+]);
+
+/** The only flags `config` may take: together they list config and change nothing. */
+const CONFIG_LISTING_FLAGS: ReadonlySet<string> = new Set([
+  "--list",
+  "-l",
+  "--show-scope",
+  "--show-origin",
+  "--includes",
+  "-z",
+  "--null",
 ]);
 
 /**
+ * `git config` writes with a key and value, `--add`, `--unset`, `--edit` and more, so only
+ * the listing (`--list` plus display flags, no other argument) is allowed.
+ */
+function checkConfigListing(rest: readonly string[]): string | null {
+  if (!rest.includes("--list") && !rest.includes("-l")) return "only `config --list` is read-only";
+  const other = rest.find((arg) => !CONFIG_LISTING_FLAGS.has(arg));
+  return other === undefined ? null : `\`config --list\` does not take ${JSON.stringify(other)}`;
+}
+
+/**
  * Options refused before `--` on every command: they write files (`--output`), run
- * programs (`--ext-diff`, `--textconv`, `--filters`, `--show-signature`), or undo what
- * `runGit` pins (colour, diff prefixes). `runGit` adds the safe forms itself; a caller's
+ * programs (`--ext-diff`, `--textconv`, `--filters`, `--show-signature`), reach into
+ * submodules (whose own config could run programs), or undo what `runGit` pins (colour,
+ * diff prefixes, submodule handling). `runGit` adds the safe forms itself; a caller's
  * later flag would override them.
  */
 const REFUSED_OPTIONS: readonly RegExp[] = [
@@ -62,6 +85,9 @@ const REFUSED_OPTIONS: readonly RegExp[] = [
   /^--default-prefix$/,
   /^--src-prefix(=|$)/,
   /^--dst-prefix(=|$)/,
+  /^--ignore-submodules(=|$)/,
+  /^--submodule(=|$)/,
+  /^--recurse-submodules(=|$)/,
 ];
 
 const SUBCOMMAND = /^[a-z][a-z0-9-]*$/;
