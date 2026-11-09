@@ -245,7 +245,7 @@ function untrackedFile(path: string, category?: FileCategory): ListedFile {
  * The empty tree's id in this repository's object format, for a checkout without commits:
  * `hash-object -t tree --stdin` with no input, which writes nothing.
  */
-async function emptyTree(cwd: string, signal: AbortSignal): Promise<string> {
+export async function emptyTree(cwd: string, signal: AbortSignal): Promise<string> {
   const output = await runGit(cwd, ["hash-object", "-t", "tree", "--stdin"], { signal, stdin: "" });
   const oid = output.stdout.toString("utf8").trim();
   if (!/^[0-9a-f]{40,64}$/.test(oid))
