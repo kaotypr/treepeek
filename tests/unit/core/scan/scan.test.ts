@@ -1,12 +1,13 @@
-import { symlinkSync } from "node:fs";
+import { symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { CoreState } from "../../../../src/core/cache/shared-state";
 import { spawnCount } from "../../../../src/core/git/process";
 import type { ScanResult } from "../../../../src/core/scan/scan";
 import { isKnownStart } from "../../../../src/shared/domain/scan";
-import { resetGitRuntime, setTestGit } from "../../../support/core-git";
+import { resetGitRuntime, setFakeGit, setTestGit } from "../../../support/core-git";
 import { gitWorktreePaths, oldestReflog, scan, tempStore } from "../../../support/core-scan";
+import { testGitPath } from "../../../support/git";
 import {
   type Fixture,
   type FixtureCheckout,
@@ -374,6 +375,42 @@ describe("scan edge cases", () => {
       expect(checkout(scanned, odd.path).working.untracked).toBe(1);
       expect(scanned.repositories[0]?.displayName).toBe("ünïcode repo");
     } finally {
+      local.cleanup();
+    }
+  });
+
+  it("reports Git's safe.directory refusal as a problem instead of dropping it silently", async () => {
+    const local = fixture();
+    try {
+      const fine = local.repo("fine").commit({ "a.txt": "1\n" });
+      const refused = local.repo("refused").commit({ "b.txt": "2\n" });
+      // Git run by another user refuses the folder; a captured stderr sample stands in.
+      const script = local.outsidePath("dubious-git.sh");
+      writeFileSync(
+        script,
+        [
+          "#!/bin/sh",
+          `if [ "$2" = '${refused.path}' ]; then`,
+          `  echo "fatal: detected dubious ownership in repository at '${refused.path}'" >&2`,
+          "  exit 128",
+          "fi",
+          `exec '${testGitPath()}' "$@"`,
+          "",
+        ].join("\n"),
+        { mode: 0o755 },
+      );
+      setFakeGit(script);
+      const scanned = await scan(local.root, { state: coreState() });
+      expect(paths(scanned)).toEqual([fine.path]);
+      expect(scanned.problems).toEqual([
+        {
+          path: refused.path,
+          code: "dubiousOwnership",
+          message: expect.stringMatching(/safe\.directory/),
+        },
+      ]);
+    } finally {
+      setTestGit();
       local.cleanup();
     }
   });
