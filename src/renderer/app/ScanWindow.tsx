@@ -96,8 +96,8 @@ function Panels() {
     if (!meta.isUserInteraction || width === 0) return;
     const px = (percent: number | undefined) =>
       percent === undefined ? undefined : Math.round((percent / 100) * width);
-    const timeline = px(layout.timeline);
-    const navigator = px(layout.navigator);
+    const timeline = px(layout["timeline-panel"]);
+    const navigator = px(layout["navigator-panel"]);
     setPanelWidths({
       ...(timeline === undefined ? {} : { timelineWidth: timeline }),
       ...(navigator === undefined ? {} : { navigatorWidth: navigator }),
@@ -115,7 +115,7 @@ function Panels() {
       {showTimeline && (
         <>
           <Panel
-            id="timeline"
+            id="timeline-panel"
             defaultSize={`${timelineWidth ?? DEFAULT_TIMELINE_WIDTH}px`}
             minSize="220px"
             maxSize="40%"
@@ -129,7 +129,7 @@ function Panels() {
       {showNavigator && (
         <>
           <Panel
-            id="navigator"
+            id="navigator-panel"
             defaultSize={`${navigatorWidth ?? DEFAULT_NAVIGATOR_WIDTH}px`}
             minSize="260px"
             maxSize="55%"
@@ -140,7 +140,7 @@ function Panels() {
           <Separator className="panel-separator" aria-label="Resize the navigator" />
         </>
       )}
-      <Panel id="preview" minSize="320px" className="bg-background">
+      <Panel id="preview-panel" minSize="320px" className="bg-background">
         <Preview />
       </Panel>
     </Group>

@@ -43,7 +43,6 @@ export const TimelineRow = forwardRef<
       id={id}
       role="option"
       aria-selected={selected}
-      aria-label={`${entry.sequence}. ${repo}, ${folder}. ${relation}. ${counts}${uncommitted > 0 ? `, ${quantity(uncommitted, "uncommitted file")}` : ""}`}
       data-checkout-path={checkout.path}
       data-sequence={entry.sequence}
       onClick={onSelect}

@@ -58,7 +58,13 @@ export function ComparisonPopover({
         <GearIcon />
       </Popover.Trigger>
       <Popover.Portal>
-        <Popover.Positioner side="right" align="start" sideOffset={8} collisionPadding={8} className="z-50">
+        <Popover.Positioner
+          side="right"
+          align="start"
+          sideOffset={8}
+          collisionPadding={8}
+          className="z-50"
+        >
           <Popover.Popup
             className="w-[340px] rounded-lg border border-border bg-popover p-3 text-popover-foreground text-sm shadow-lg outline-none"
             data-testid="comparison-popover"

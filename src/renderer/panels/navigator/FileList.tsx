@@ -190,7 +190,6 @@ export function FileList() {
                   data-index={item.index}
                   role="option"
                   aria-selected={selected}
-                  aria-label={`${label}, ${file.status}${file.category ? `, ${file.category}` : ""}`}
                   title={label}
                   data-path={file.path}
                   onClick={() => uiStore.getState().selectFile(selectionOf(file))}
@@ -213,10 +212,13 @@ export function FileList() {
                     className={cn("min-w-0 flex-1 font-mono", selected ? "break-all" : "truncate")}
                   >
                     {label}
+                    <span className="sr-only">
+                      , {file.status}
+                      {file.category ? ", " : ""}
+                    </span>
                   </span>
                   {file.category && (
                     <span
-                      aria-hidden="true"
                       className={cn(
                         "shrink-0 text-[10px] uppercase tracking-wide",
                         CATEGORY_CLASS[file.category],

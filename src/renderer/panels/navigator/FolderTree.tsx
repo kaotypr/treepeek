@@ -141,7 +141,6 @@ export function FolderTree() {
               aria-expanded={
                 row.checkoutPath === null && row.hasChildren ? expanded.has(row.key) : undefined
               }
-              aria-label={row.ariaLabel}
               data-checkout-path={row.checkoutPath ?? undefined}
               className={cn(
                 "absolute left-0 flex w-full cursor-default items-center gap-1.5 pr-2 text-xs",
@@ -169,6 +168,7 @@ export function FolderTree() {
                 </span>
               )}
               <span className="min-w-0 flex-1 truncate">{row.name}</span>
+              <span className="sr-only">{row.checkoutPath === null ? ", " : ", checkout of "}</span>
               <span className="shrink-0 text-muted-foreground">{row.badge}</span>
             </div>
           );
@@ -183,7 +183,6 @@ interface TreeRow extends FolderRow {
   parentKey: string | null;
   name: string;
   badge: string;
-  ariaLabel: string;
 }
 
 function treeRows(scan: ScanData, expanded: ReadonlySet<string>): TreeRow[] {
@@ -202,9 +201,6 @@ function treeRows(scan: ScanData, expanded: ReadonlySet<string>): TreeRow[] {
       parentKey: row.folder.parent,
       name,
       badge,
-      ariaLabel: isCheckout
-        ? `${row.folder.name}, ${badge} checkout`
-        : `${row.folder.name}, ${badge}`,
     };
   });
 }
