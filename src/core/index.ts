@@ -1,20 +1,44 @@
 /**
  * The core service: one Electron utility process for the whole app. It owns every Git and
- * filesystem operation (later plans) and serves each window over its own MessagePort.
+ * filesystem operation and serves each window over its own MessagePort, with one session
+ * per window sharing one `CoreState` and one local store.
  */
 import type { MessagePortMain } from "electron";
 import * as v from "valibot";
 import { CONTRACT_VERSION, type CoreToMain, coreCalls, MainToCoreSchema, ok } from "../shared/ipc";
+import { CoreState } from "./cache/shared-state";
 import type { DiscoverOptions } from "./git/discover";
 import { rediscoverGit } from "./git/runtime";
+import { registerSessionCalls } from "./handlers";
+import { validatePaths } from "./handlers/paths";
 import { createLogger, initCoreLog } from "./log";
 import { probeSqlite } from "./probe-sqlite";
-import type { CoreRpc, PortLike } from "./rpc";
+import type { PortLike } from "./rpc";
 import { SessionRegistry } from "./sessions/registry";
+import type { Session, SessionServices } from "./sessions/session";
+import { openReviewStore } from "./store/open-store";
+import type { ReviewStore } from "./store/review-store";
 
 const log = createLogger("service");
 const parentPort = process.parentPort;
 const sqlite = probeSqlite();
+
+/** Repository caches and batch processes, shared by every session. */
+const state = new CoreState();
+/** Opened by `core.init`, which carries the user data folder; `null` until then or on failure. */
+let store: ReviewStore | null = null;
+const services: SessionServices = { state, store: () => store };
+
+function openStore(userDataDir: string): void {
+  if (store) return;
+  try {
+    store = openReviewStore(userDataDir, { log: log.child("store") });
+    log.info("local store opened", { engine: store.engine });
+  } catch (error) {
+    // Scans still run from the reflog alone; start overrides fail until a restart.
+    log.error("could not open the local store", error);
+  }
+}
 
 function send(message: CoreToMain): void {
   parentPort.postMessage(message);
@@ -32,7 +56,8 @@ async function discoverAndReport(): Promise<void> {
   send({ type: "git.state", state });
 }
 
-function registerHandlers(rpc: CoreRpc): void {
+function registerHandlers(session: Session): void {
+  const { rpc } = session;
   rpc.onCall(coreCalls["app.ping"], () =>
     ok({ process: "core", pid: process.pid, at: Date.now() }),
   );
@@ -43,9 +68,10 @@ function registerHandlers(rpc: CoreRpc): void {
       sqlite,
     }),
   );
+  registerSessionCalls(session, services);
 }
 
-const sessions = new SessionRegistry(log, registerHandlers);
+const sessions = new SessionRegistry(log, services, registerHandlers);
 
 function adaptPort(port: MessagePortMain): PortLike {
   return {
@@ -81,6 +107,7 @@ parentPort.on("message", (event) => {
         electron: process.versions.electron,
         sqlite,
       });
+      openStore(message.userDataDir);
       send({ type: "core.ready", pid: process.pid, contractVersion: CONTRACT_VERSION });
       discovery.override = message.gitPathOverride;
       discovery.loginPath = message.loginPath;
@@ -109,7 +136,24 @@ parentPort.on("message", (event) => {
       discovery.override = message.path;
       void discoverAndReport();
       return;
+    case "paths.validate": {
+      const { id, paths } = message;
+      validatePaths(sessions.all(), paths).then(
+        (valid) => send({ type: "paths.validate", id, valid }),
+        (error: unknown) => {
+          log.error("paths.validate failed", error);
+          send({ type: "paths.validate", id, valid: paths.map(() => false) });
+        },
+      );
+      return;
+    }
   }
+});
+
+process.on("exit", () => {
+  sessions.closeAll();
+  state.close();
+  store?.close();
 });
 
 process.on("uncaughtException", (error) => {
