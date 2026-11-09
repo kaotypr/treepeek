@@ -96,6 +96,7 @@ test.describe(`foundation (${target})`, () => {
         coreApp: keys(api.core?.app ?? {}),
         coreRequest: keys(api.core?.request ?? {}),
         coreComparison: keys(api.core?.comparison ?? {}),
+        coreDiff: keys(api.core?.diff ?? {}),
         unchanged: api.main?.app === before && typeof window.treepeek === "object",
         assignmentThrew,
       };
@@ -105,10 +106,19 @@ test.describe(`foundation (${target})`, () => {
     expect(shape.main).toEqual(["app", "settings"]);
     expect(shape.mainApp).toEqual(["ping"]);
     expect(shape.mainSettings).toEqual(["get", "set"]);
-    expect(shape.core).toEqual(["app", "comparison", "request", "scan", "session", "start"]);
+    expect(shape.core).toEqual([
+      "app",
+      "comparison",
+      "diff",
+      "request",
+      "scan",
+      "session",
+      "start",
+    ]);
     expect(shape.coreApp).toEqual(["info", "ping"]);
     expect(shape.coreRequest).toEqual(["cancel"]);
     expect(shape.coreComparison).toEqual(["list"]);
+    expect(shape.coreDiff).toEqual(["file"]);
     expect(shape.unchanged).toBe(true);
   });
 

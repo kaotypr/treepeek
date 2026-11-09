@@ -6,6 +6,8 @@ import { type CallMap, defineCall, defineEvent, type EventMap } from "./define";
 import {
   CheckoutSchema,
   ComparisonResultSchema,
+  FileCategorySchema,
+  FileDiffSchema,
   FolderNodeSchema,
   PathSchema,
   RefSchema,
@@ -18,7 +20,7 @@ import {
  * Bumped whenever a channel's shape changes. Main, the core service and every window come
  * from one build, so a mismatch means something is badly wrong; it is still checked.
  */
-export const CONTRACT_VERSION = 4;
+export const CONTRACT_VERSION = 5;
 
 const Empty = v.strictObject({});
 
@@ -166,6 +168,35 @@ export const coreCalls = {
       startOverride: v.exactOptional(RefSchema),
     }),
     response: ComparisonResultSchema,
+  }),
+  /**
+   * One file's diff in a comparison: Git's patch parsed into hunks, plus the full texts
+   * within the diff pipeline's size limits. `comparison` names the comparison exactly as
+   * `comparison.list` takes it (kind, `ref`, `startOverride`); the core service resolves
+   * its sides again and takes the file's status, old path, blob ids and `resultHash` from
+   * that comparison's list, never from the request. `path` is repository-relative (as
+   * listed); `category` is required for `working` and refused for every other kind.
+   *
+   * Fails `notInScan` for a checkout outside the scan, or a path that is absolute, has a
+   * `..` segment or resolves outside the checkout; `invalidRequest` with
+   * `detail.notInComparison` for a path the comparison's list does not hold; and like
+   * `comparison.list` for a kind the checkout cannot have. `request.cancel` with the same
+   * `requestId` stops it and its git processes.
+   */
+  "diff.file": defineCall({
+    name: "diff.file",
+    request: v.strictObject({
+      requestId: RequestId,
+      checkoutPath: PathSchema,
+      comparison: v.strictObject({
+        kind: v.picklist(LISTABLE_COMPARISON_KINDS),
+        ref: v.exactOptional(RefSchema),
+        startOverride: v.exactOptional(RefSchema),
+      }),
+      path: PathSchema,
+      category: v.exactOptional(FileCategorySchema),
+    }),
+    response: FileDiffSchema,
   }),
 } as const satisfies CallMap;
 

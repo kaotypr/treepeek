@@ -9,6 +9,7 @@ import type {
   ContentSide,
   FileChange,
 } from "../../../src/shared/domain/compare";
+import type { FileDiff } from "../../../src/shared/domain/diff";
 import type { GitState } from "../../../src/shared/domain/git";
 import type {
   Checkout,
@@ -31,6 +32,7 @@ import {
   defineEvent,
   err,
   type FileChangeSchema,
+  type FileDiffSchema,
   type FolderNodeSchema,
   type GitStateSchema,
   IPC_ERROR_CODES,
@@ -187,7 +189,7 @@ describe("contract", () => {
         state: { found: false, problem: "xcodeMissing" },
       }).success,
     ).toBe(true);
-    expect(CONTRACT_VERSION).toBe(4);
+    expect(CONTRACT_VERSION).toBe(5);
   });
 
   it("carries paths.validate between main and core, bounded", () => {
@@ -217,6 +219,82 @@ describe("contract", () => {
     expectTypeOf<v.InferOutput<typeof ComparisonSchema>>().toEqualTypeOf<Comparison>();
     expectTypeOf<v.InferOutput<typeof FileChangeSchema>>().toEqualTypeOf<FileChange>();
     expectTypeOf<v.InferOutput<typeof ComparisonResultSchema>>().toEqualTypeOf<ComparisonResult>();
+    expectTypeOf<v.InferOutput<typeof FileDiffSchema>>().toEqualTypeOf<FileDiff>();
+  });
+
+  it("validates diff.file requests strictly: a comparison selector, bounded strings", () => {
+    const diff = coreCalls["diff.file"];
+    const good = {
+      requestId: "d1",
+      checkoutPath: "/x",
+      comparison: { kind: "review" },
+      path: "src/a b.ts",
+    };
+    expect(parseRequest(diff, good).ok).toBe(true);
+    expect(
+      parseRequest(diff, {
+        ...good,
+        comparison: { kind: "working" },
+        category: "unstaged",
+      }).ok,
+    ).toBe(true);
+    expect(
+      parseRequest(diff, {
+        ...good,
+        comparison: { kind: "base", ref: "main", startOverride: "v1" },
+      }).ok,
+    ).toBe(true);
+    for (const bad of [
+      { ...good, requestId: "" },
+      { ...good, requestId: "r".repeat(129) },
+      { ...good, checkoutPath: "" },
+      { ...good, path: "" },
+      { ...good, path: "p".repeat(4097) },
+      { ...good, category: "ignored" },
+      { ...good, comparison: { kind: "sinceViewed" } },
+      { ...good, comparison: { kind: "base", ref: "a".repeat(201) } },
+      // Sides, commit and blob ids are never taken from the renderer.
+      { ...good, comparison: { kind: "review", left: { kind: "empty" } } },
+      { ...good, comparison: { kind: "review", right: { kind: "workingTree" } } },
+      { ...good, leftOid: "a".repeat(40) },
+      { ...good, resultHash: "a".repeat(40) },
+      (({ requestId: _, ...rest }) => rest)(good),
+      (({ comparison: _, ...rest }) => rest)(good),
+    ]) {
+      expect(parseRequest(diff, bad).ok, JSON.stringify(bad)).toBe(false);
+    }
+    const fileDiff: FileDiff = {
+      path: "b.txt",
+      oldPath: "a.txt",
+      status: "renamed",
+      binary: false,
+      hunks: [
+        {
+          oldStart: 1,
+          oldLines: 1,
+          newStart: 1,
+          newLines: 1,
+          header: "@@ -1 +1 @@",
+          lines: [
+            { kind: "remove", text: "a", oldNo: 1, newNo: null },
+            { kind: "add", text: "b", oldNo: null, newNo: 1 },
+            { kind: "noNewline", text: "No newline at end of file", oldNo: null, newNo: null },
+          ],
+        },
+      ],
+      left: "a",
+      right: "b",
+      stats: { added: 1, removed: 1 },
+      limits: { patchTruncated: false, contentOmitted: false, highlightOff: false },
+      resultHash: "c".repeat(40),
+    };
+    expect(v.safeParse(diff.response, fileDiff).success).toBe(true);
+    expect(v.safeParse(diff.response, { ...fileDiff, left: null, right: null }).success).toBe(true);
+    expect(v.safeParse(diff.response, { ...fileDiff, oldPath: undefined }).success).toBe(false);
+    expect(v.safeParse(diff.response, { ...fileDiff, status: "unmerged" }).success).toBe(false);
+    expect(
+      v.safeParse(diff.response, { ...fileDiff, stats: { added: -1, removed: 0 } }).success,
+    ).toBe(false);
   });
 
   it("validates comparison.list requests strictly and bounds the refs", () => {

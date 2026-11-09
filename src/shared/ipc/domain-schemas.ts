@@ -86,19 +86,23 @@ export const ComparisonSchema = v.object({
   right: ContentSideSchema,
 });
 
+export const FileStatusSchema = v.picklist([
+  "added",
+  "modified",
+  "deleted",
+  "renamed",
+  "copied",
+  "typeChanged",
+  "untracked",
+]);
+
+export const FileCategorySchema = v.picklist(["staged", "unstaged", "untracked"]);
+
 export const FileChangeSchema = v.object({
   path: v.string(),
   oldPath: v.exactOptional(v.string()),
-  status: v.picklist([
-    "added",
-    "modified",
-    "deleted",
-    "renamed",
-    "copied",
-    "typeChanged",
-    "untracked",
-  ]),
-  category: v.exactOptional(v.picklist(["staged", "unstaged", "untracked"])),
+  status: FileStatusSchema,
+  category: v.exactOptional(FileCategorySchema),
   left: ContentSideSchema,
   right: ContentSideSchema,
   leftOid: v.exactOptional(v.string()),
@@ -113,4 +117,37 @@ export const ComparisonResultSchema = v.object({
   commits: v.exactOptional(Count),
   contained: v.exactOptional(v.boolean()),
   note: v.exactOptional(v.string()),
+});
+
+export const HunkLineSchema = v.object({
+  kind: v.picklist(["context", "add", "remove", "noNewline"]),
+  text: v.string(),
+  oldNo: v.nullable(Count),
+  newNo: v.nullable(Count),
+});
+
+export const HunkSchema = v.object({
+  oldStart: Count,
+  oldLines: Count,
+  newStart: Count,
+  newLines: Count,
+  header: v.string(),
+  lines: v.array(HunkLineSchema),
+});
+
+export const FileDiffSchema = v.object({
+  path: v.string(),
+  oldPath: v.exactOptional(v.string()),
+  status: FileStatusSchema,
+  binary: v.boolean(),
+  hunks: v.array(HunkSchema),
+  left: v.nullable(v.string()),
+  right: v.nullable(v.string()),
+  stats: v.object({ added: Count, removed: Count }),
+  limits: v.object({
+    patchTruncated: v.boolean(),
+    contentOmitted: v.boolean(),
+    highlightOff: v.boolean(),
+  }),
+  resultHash: v.string(),
 });
