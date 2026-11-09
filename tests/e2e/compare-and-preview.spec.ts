@@ -323,6 +323,26 @@ test.describe(`compare and preview (${target})`, () => {
       const violations = await contrastViolations(page);
       expect(violations.map((violation) => `${appearance}: ${violation}`)).toEqual([]);
     }
+    // macOS "Increase contrast": the stronger variants must pass too.
+    await page.emulateMedia({ contrast: "more" });
+    try {
+      for (const appearance of ["light", "dark"] as const) {
+        await page.evaluate(
+          (next) => window.treepeek.main.settings.set({ appearance: next }),
+          appearance,
+        );
+        await page.waitForFunction(
+          (dark) => document.documentElement.classList.contains("dark") === dark,
+          appearance === "dark",
+        );
+        const violations = await contrastViolations(page);
+        expect(violations.map((violation) => `${appearance}, more contrast: ${violation}`)).toEqual(
+          [],
+        );
+      }
+    } finally {
+      await page.emulateMedia({ contrast: null });
+    }
     await page.evaluate(() => window.treepeek.main.settings.set({ appearance: "system" }));
     await page.keyboard.press("Meta+T");
   });

@@ -169,6 +169,31 @@ test.describe(`browse (${target})`, () => {
     expect(options.some((text) => text.includes("app-new"))).toBe(true);
   });
 
+  test("the appearance toggle cycles System, Light and Dark, and saves the setting", async () => {
+    const { page } = app;
+    const toggle = page.getByTestId("appearance-toggle");
+    const saved = () =>
+      page.evaluate(async () => {
+        const settings = await window.treepeek.main.settings.get();
+        return settings.ok ? settings.value.appearance : null;
+      });
+    expect(await saved()).toBe("system");
+    for (const [next, dark] of [
+      ["light", false],
+      ["dark", true],
+      ["system", null],
+    ] as const) {
+      await toggle.click();
+      await expect.poll(saved).toBe(next);
+      if (dark !== null) {
+        await expect
+          .poll(() => page.evaluate(() => document.documentElement.classList.contains("dark")))
+          .toBe(dark);
+      }
+    }
+    await expect(toggle).toHaveAttribute("aria-label", /^Appearance: System\./);
+  });
+
   test("Reconnecting… shows while the core service restarts, and the scan comes back", async () => {
     const { page } = app;
     await selectCheckout(page, feature.path);
