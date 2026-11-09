@@ -175,6 +175,34 @@ describe("runGit", () => {
     expect(whole.stdout.length).toBe(300_000);
   });
 
+  it("keeps the first maxBytes bytes and stops the process when asked to truncate", async () => {
+    setTestGit();
+    const { events, stop } = recordSpawns();
+    let output: Awaited<ReturnType<typeof runGit>>;
+    try {
+      output = await runGit(repo.path, ["cat-file", "blob", bigBlob], {
+        signal: signal(),
+        maxBytes: 10_000,
+        overflow: "truncate",
+      });
+    } finally {
+      stop();
+    }
+    expect(output.truncated).toBe(true);
+    expect(output.stdout.toString("utf8")).toBe("x".repeat(10_000));
+    const pids = events.filter((event) => event.type === "spawn").map((event) => event.pid);
+    expect(pids.length).toBeGreaterThan(0);
+    expect(pids.filter(isAlive)).toEqual([]);
+    // Within the cap the output is whole and not marked.
+    const whole = await runGit(repo.path, ["cat-file", "blob", bigBlob], {
+      signal: signal(),
+      maxBytes: 300_000,
+      overflow: "truncate",
+    });
+    expect(whole.truncated).toBeUndefined();
+    expect(whole.stdout.length).toBe(300_000);
+  });
+
   it("times out a hanging command and kills it", async () => {
     setFakeGit(script("hang.sh", "exec sleep 30"));
     const { events, stop } = recordSpawns();

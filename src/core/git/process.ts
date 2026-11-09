@@ -14,8 +14,17 @@ export interface ProcessOptions {
   signal?: AbortSignal | undefined;
   /** Kills the process past this many milliseconds; the call fails `timeout`. */
   timeoutMs: number;
-  /** Kills the process once stdout passes this many bytes; the call fails `outputTooLarge`. */
+  /**
+   * Kills the process once stdout passes this many bytes. The call fails `outputTooLarge`,
+   * unless `overflow` is `truncate`.
+   */
   maxBytes: number;
+  /**
+   * What passing `maxBytes` means: `fail` (default) rejects with `outputTooLarge`;
+   * `truncate` keeps the first `maxBytes` bytes, kills the process and resolves with
+   * `truncated: true` (a patch cut at the diff pipeline's size limit).
+   */
+  overflow?: "fail" | "truncate" | undefined;
   /** Written to stdin, which is then closed. Without it stdin is `/dev/null`. */
   stdin?: string | Uint8Array | undefined;
   /** Exit codes that count as success. Default `[0]`. */
@@ -25,7 +34,10 @@ export interface ProcessOptions {
 export interface ProcessOutput {
   stdout: Buffer;
   stderr: string;
+  /** The exit code; `-1` when the output was truncated and the process stopped for it. */
   code: number;
+  /** Set when stdout passed `maxBytes` under `overflow: "truncate"`; `stdout` is its start. */
+  truncated?: true;
 }
 
 export interface SpawnEvent {
@@ -88,6 +100,7 @@ export function runProcess(
     let bytes = 0;
     let stderr = "";
     let stopped: GitFailure | null = null;
+    let truncated = false;
     let settled = false;
     let grace: NodeJS.Timeout | null = null;
 
@@ -107,7 +120,8 @@ export function runProcess(
     };
 
     const stop = (reason: GitFailure) => {
-      if (stopped !== null || settled) return;
+      // Once truncated, the outcome is decided and the process is already being killed.
+      if (stopped !== null || settled || truncated) return;
       stopped = reason;
       killGroup(child);
       grace = setTimeout(() => {
@@ -117,17 +131,43 @@ export function runProcess(
       }, CLOSE_GRACE_MS);
     };
 
+    /** Enough output was read: stop the process and answer with what was kept. */
+    const truncate = () => {
+      if (stopped !== null || settled || truncated) return;
+      truncated = true;
+      killGroup(child);
+      grace = setTimeout(() => {
+        child.stdout?.destroy();
+        child.stderr?.destroy();
+        finish({ ok: truncatedOutput() });
+      }, CLOSE_GRACE_MS);
+    };
+    const truncatedOutput = (): ProcessOutput => ({
+      stdout: Buffer.concat(chunks, bytes),
+      stderr,
+      code: -1,
+      truncated: true,
+    });
+
     const onAbort = () => stop("cancelled");
     const timer = setTimeout(() => stop("timeout"), options.timeoutMs);
     options.signal?.addEventListener("abort", onAbort, { once: true });
 
     child.stdout?.on("data", (chunk: Buffer) => {
-      if (stopped !== null) return;
-      bytes += chunk.length;
-      if (bytes > options.maxBytes) {
+      if (stopped !== null || truncated) return;
+      if (bytes + chunk.length > options.maxBytes) {
+        if (options.overflow === "truncate") {
+          const keep = options.maxBytes - bytes;
+          if (keep > 0) chunks.push(chunk.subarray(0, keep));
+          bytes = options.maxBytes;
+          truncate();
+          return;
+        }
+        bytes += chunk.length;
         stop("outputTooLarge");
         return;
       }
+      bytes += chunk.length;
       chunks.push(chunk);
     });
     child.stderr?.setEncoding("utf8");
@@ -144,6 +184,8 @@ export function runProcess(
       if (pid !== undefined) notify({ type: "exit", pid, file, args });
       if (stopped !== null) {
         finish({ error: gitFailure(stopped, stderr) });
+      } else if (truncated) {
+        finish({ ok: truncatedOutput() });
       } else if (code === null) {
         finish({ error: gitFailure("signal", stderr) });
       } else if (!(options.okExitCodes ?? [0]).includes(code)) {

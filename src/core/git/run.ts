@@ -76,6 +76,11 @@ export interface RunGitOptions {
   timeoutMs?: number;
   /** Default `GIT_MAX_OUTPUT_BYTES`; diffs pass the diff-pipeline caps. */
   maxBytes?: number;
+  /**
+   * Past `maxBytes`: `fail` (default) rejects with `outputTooLarge`; `truncate` resolves
+   * with the first `maxBytes` bytes and `truncated: true` (`ProcessOptions.overflow`).
+   */
+  overflow?: "fail" | "truncate";
   /** Queue lane. Default `normal`. */
   priority?: GitPriority;
   /** Written to git's stdin, which is then closed. */
@@ -185,6 +190,7 @@ export async function runGit(
         signal: options.signal,
         timeoutMs,
         maxBytes: options.maxBytes ?? GIT_MAX_OUTPUT_BYTES,
+        overflow: options.overflow,
         stdin: options.stdin,
         okExitCodes: options.okExitCodes,
       }),
