@@ -22,7 +22,7 @@ export const SKIP_DIRS: ReadonlySet<string> = new Set([
   "venv",
 ]);
 
-/** The diff pipeline's size limits (starting values, confirmed by the viewer trial). */
+/** The diff pipeline's size limits, confirmed by the viewer trial (docs/decisions/diff-viewer.md). */
 export const DIFF_LIMITS = Object.freeze({
   /** Patch bytes read; beyond this the patch is truncated at a hunk boundary. */
   patchBytes: 5 * MB,
