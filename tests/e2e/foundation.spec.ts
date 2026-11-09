@@ -92,6 +92,7 @@ test.describe(`foundation (${target})`, () => {
             resolve({
               require: typeof (globalThis as Record<string, unknown>).require,
               process: typeof (globalThis as Record<string, unknown>).process,
+              // biome-ignore lint/security/noGlobalEval: proves the CSP blocks eval
               eval: attempt(() => globalThis.eval("1 + 1")),
               functionConstructor: attempt(() => new Function("return 1")()),
               unknownEvent: attempt(() => window.treepeek.on("fs.changed" as never, () => {})),
