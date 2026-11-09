@@ -8,6 +8,7 @@ import { Button } from "@renderer/components/ui/button";
 import { cn } from "@renderer/lib/utils";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { FileDiff } from "../../../shared/domain/diff";
+import { CodeMirrorDiffView } from "../../diff-view/codemirror/CodeMirrorDiffView";
 import { DiffView } from "../../diff-view/DiffView";
 import { highlightRequestCount } from "../../diff-view/highlight/pool";
 import type { DiffAnchor, DiffViewHandle, DiffViewMode } from "../../diff-view/types";
@@ -48,6 +49,8 @@ export function DiffLab() {
   const [mode, setModeState] = useState<DiffViewMode>("split");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Trial only: the fallback adapter's thin proof, rendered directly.
+  const [adapter, setAdapter] = useState<"pierre" | "codemirror">("pierre");
   const viewRef = useRef<DiffViewHandle>(null);
   const pendingAnchor = useRef<DiffAnchor | null>(null);
   const hunkCursor = useRef(0);
@@ -185,6 +188,21 @@ export function DiffLab() {
           ))}
         </fieldset>
 
+        <label className="flex items-center gap-2">
+          <span className="text-muted-foreground">Viewer</span>
+          <select
+            className="rounded-md border border-input bg-background px-2 py-1"
+            value={adapter}
+            data-testid="lab-adapter"
+            onChange={(event) =>
+              setAdapter(event.target.value === "codemirror" ? "codemirror" : "pierre")
+            }
+          >
+            <option value="pierre">@pierre/diffs</option>
+            <option value="codemirror">CodeMirror 6 (proof, split only)</option>
+          </select>
+        </label>
+
         <Button
           size="sm"
           variant="outline"
@@ -217,7 +235,15 @@ export function DiffLab() {
       )}
 
       <main className="min-h-0 flex-1">
-        {selection !== null && (
+        {selection !== null && adapter === "codemirror" && (
+          <CodeMirrorDiffView
+            diff={selection.diff}
+            mode={mode}
+            theme={theme}
+            contextLines={DEFAULT_CONTEXT_LINES}
+          />
+        )}
+        {selection !== null && adapter === "pierre" && (
           <DiffView
             ref={viewRef}
             diff={selection.diff}
