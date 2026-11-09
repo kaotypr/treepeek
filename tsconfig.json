@@ -1,0 +1,12 @@
+{
+  "files": [],
+  "references": [
+    { "path": "./src/shared" },
+    { "path": "./src/main" },
+    { "path": "./src/core" },
+    { "path": "./src/preload" },
+    { "path": "./src/renderer" },
+    { "path": "./tests" },
+    { "path": "./tsconfig.config.json" }
+  ]
+}

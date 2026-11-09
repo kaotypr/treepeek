@@ -1,0 +1,182 @@
+{
+  "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
+  "vcs": { "enabled": true, "clientKind": "git", "useIgnoreFile": true },
+  "files": {
+    "includes": [
+      "**",
+      "!**/node_modules",
+      "!**/out",
+      "!**/dist",
+      "!**/test-results",
+      "!**/playwright-report"
+    ]
+  },
+  "formatter": {
+    "enabled": true,
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineWidth": 100
+  },
+  "javascript": {
+    "formatter": { "quoteStyle": "double", "semicolons": "always", "trailingCommas": "all" }
+  },
+  "css": {
+    "parser": { "tailwindDirectives": true }
+  },
+  "assist": { "actions": { "source": { "organizeImports": "on" } } },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "preset": "recommended"
+    }
+  },
+  "overrides": [
+    {
+      "includes": ["src/renderer/**"],
+      "linter": {
+        "rules": {
+          "correctness": { "noNodejsModules": "error" },
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "paths": {
+                  "electron": "The renderer has no Electron access; go through window.treepeek."
+                },
+                "patterns": [
+                  {
+                    "group": [
+                      "**/main",
+                      "**/main/**",
+                      "**/core",
+                      "**/core/**",
+                      "**/preload",
+                      "**/preload/**"
+                    ],
+                    "message": "The renderer may import only src/shared (and its own files)."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "includes": ["src/shared/**"],
+      "linter": {
+        "rules": {
+          "correctness": { "noNodejsModules": "error" },
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "paths": {
+                  "electron": "src/shared runs in every process; it cannot import Electron.",
+                  "react": "src/shared runs in every process; it cannot import React."
+                },
+                "patterns": [
+                  {
+                    "group": [
+                      "**/main",
+                      "**/main/**",
+                      "**/core",
+                      "**/core/**",
+                      "**/preload",
+                      "**/preload/**",
+                      "**/renderer",
+                      "**/renderer/**"
+                    ],
+                    "message": "src/shared may import nothing outside src/shared."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "includes": ["src/main/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": [
+                      "**/core",
+                      "**/core/**",
+                      "**/preload",
+                      "**/preload/**",
+                      "**/renderer",
+                      "**/renderer/**"
+                    ],
+                    "message": "src/main may import src/shared, Node and Electron only."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "includes": ["src/core/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": [
+                      "**/main",
+                      "**/main/**",
+                      "**/preload",
+                      "**/preload/**",
+                      "**/renderer",
+                      "**/renderer/**"
+                    ],
+                    "message": "src/core may import src/shared, Node and Electron's utilityProcess APIs only; never src/main."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "includes": ["src/preload/**"],
+      "linter": {
+        "rules": {
+          "correctness": { "noNodejsModules": "error" },
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": [
+                      "**/main",
+                      "**/main/**",
+                      "**/core",
+                      "**/core/**",
+                      "**/renderer",
+                      "**/renderer/**"
+                    ],
+                    "message": "The preload may import src/shared and electron only."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

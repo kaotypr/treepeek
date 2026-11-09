@@ -1,0 +1,5 @@
+[install]
+# electron-builder collects production dependencies from a flat, npm-style
+# node_modules, so install hoisted rather than with Bun's isolated linker.
+linker = "hoisted"
+exact = true

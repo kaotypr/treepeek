@@ -1,0 +1,207 @@
+@import "tailwindcss";
+
+/*
+ * Color tokens (user-interface design, "Theming"). Every color is a CSS variable with a
+ * light and a dark value; components use the Tailwind names from `@theme inline` below.
+ * The light set starts from the prototype's green palette. `--background` must equal
+ * WINDOW_BACKGROUND in src/shared/theme.ts, which paints a new window's first frame.
+ */
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  color-scheme: light;
+
+  /* Surfaces and text */
+  --background: #f4f6f3;
+  --foreground: #172521;
+  --card: #ffffff;
+  --card-foreground: #172521;
+  --popover: #ffffff;
+  --popover-foreground: #172521;
+  --muted: #eef2ec;
+  --muted-foreground: #56675d;
+  --chrome: #102b25;
+  --chrome-foreground: #f6f7ef;
+
+  /* Actions */
+  --primary: #d4f16e;
+  --primary-foreground: #193016;
+  --primary-strong: #3b773e;
+  --secondary: #e9efe8;
+  --secondary-foreground: #24372b;
+  --accent: #edf5dc;
+  --accent-foreground: #244c2b;
+  --destructive: #a33d2e;
+  --destructive-foreground: #ffffff;
+  --link: #246843;
+
+  /* Lines and focus */
+  --border: #dce5dd;
+  --input: #c9d6ca;
+  --switch-off: #74867a;
+  --ring: #3b773e;
+
+  /* Diff */
+  --diff-added: #e8f5df;
+  --diff-added-foreground: #1f4d22;
+  --diff-removed: #ffebe8;
+  --diff-removed-foreground: #8a2f22;
+  --diff-hunk: #e9eff8;
+  --diff-hunk-foreground: #3b5679;
+  --diff-collapsed: #f3f6f0;
+  --diff-collapsed-foreground: #5d6d62;
+
+  /* Review */
+  --review-progress: #4f8a35;
+  --review-viewed: #2f6b3e;
+  --review-changed: #8a5a12;
+  --review-changed-surface: #fff5db;
+
+  /* Working-tree status */
+  --status-staged: #2f6b3e;
+  --status-unstaged: #8a5a12;
+  --status-untracked: #6d4f92;
+
+  --radius: 0.5rem;
+}
+
+.dark {
+  color-scheme: dark;
+
+  --background: #0e1613;
+  --foreground: #e3ebe5;
+  --card: #15201c;
+  --card-foreground: #e3ebe5;
+  --popover: #15201c;
+  --popover-foreground: #e3ebe5;
+  --muted: #1b2823;
+  --muted-foreground: #9fb0a5;
+  --chrome: #0a110e;
+  --chrome-foreground: #e3ebe5;
+
+  --primary: #c6e85a;
+  --primary-foreground: #172512;
+  --primary-strong: #8fc46a;
+  --secondary: #1f2c26;
+  --secondary-foreground: #d6e2da;
+  --accent: #1f3022;
+  --accent-foreground: #d3ecb6;
+  --destructive: #f08b7a;
+  --destructive-foreground: #1f0d0a;
+  --link: #8fd3a5;
+
+  --border: #26362f;
+  --input: #34463d;
+  --switch-off: #5d6f64;
+  --ring: #8fc46a;
+
+  --diff-added: #16301f;
+  --diff-added-foreground: #b6e3bf;
+  --diff-removed: #3a1d1b;
+  --diff-removed-foreground: #f4bdb3;
+  --diff-hunk: #1b2638;
+  --diff-hunk-foreground: #a9bfe3;
+  --diff-collapsed: #17211d;
+  --diff-collapsed-foreground: #9aaba0;
+
+  --review-progress: #8fc46a;
+  --review-viewed: #7fc08e;
+  --review-changed: #e3b04b;
+  --review-changed-surface: #33280f;
+
+  --status-staged: #7fc08e;
+  --status-unstaged: #e0a458;
+  --status-untracked: #b9a0e3;
+}
+
+/* macOS "Increase contrast": stronger lines and diff colors. */
+@media (prefers-contrast: more) {
+  :root {
+    --border: #9fb0a3;
+    --input: #7d9081;
+    --muted-foreground: #3f4f45;
+    --diff-added: #cfeabd;
+    --diff-removed: #ffd3cc;
+  }
+  .dark {
+    --border: #4d6157;
+    --input: #61766b;
+    --muted-foreground: #c0cec5;
+    --diff-added: #1f4a2b;
+    --diff-removed: #572622;
+  }
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-chrome: var(--chrome);
+  --color-chrome-foreground: var(--chrome-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary-strong: var(--primary-strong);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-link: var(--link);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-switch-off: var(--switch-off);
+  --color-ring: var(--ring);
+  --color-diff-added: var(--diff-added);
+  --color-diff-added-foreground: var(--diff-added-foreground);
+  --color-diff-removed: var(--diff-removed);
+  --color-diff-removed-foreground: var(--diff-removed-foreground);
+  --color-diff-hunk: var(--diff-hunk);
+  --color-diff-hunk-foreground: var(--diff-hunk-foreground);
+  --color-diff-collapsed: var(--diff-collapsed);
+  --color-diff-collapsed-foreground: var(--diff-collapsed-foreground);
+  --color-review-progress: var(--review-progress);
+  --color-review-viewed: var(--review-viewed);
+  --color-review-changed: var(--review-changed);
+  --color-review-changed-surface: var(--review-changed-surface);
+  --color-status-staged: var(--status-staged);
+  --color-status-unstaged: var(--status-unstaged);
+  --color-status-untracked: var(--status-untracked);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  --font-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    @apply bg-background font-sans text-foreground antialiased;
+    margin: 0;
+  }
+}
+
+/* The hidden-inset title bar: the top strip moves the window; controls inside it opt out. */
+.app-drag {
+  -webkit-app-region: drag;
+}
+.app-no-drag {
+  -webkit-app-region: no-drag;
+}

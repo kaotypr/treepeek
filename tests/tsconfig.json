@@ -1,0 +1,21 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "../node_modules/.cache/tsc/tests",
+    "rootDir": "..",
+    "lib": ["es2024", "dom"],
+    "types": ["node"]
+  },
+  "include": ["**/*.ts", "../src/preload/types.d.ts"],
+  "references": [
+    {
+      "path": "../src/shared"
+    },
+    {
+      "path": "../src/main"
+    },
+    {
+      "path": "../src/core"
+    }
+  ]
+}

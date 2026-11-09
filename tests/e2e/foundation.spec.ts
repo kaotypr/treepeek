@@ -1,0 +1,327 @@
+import { expect, type Page, test } from "@playwright/test";
+import { contrastViolations } from "./support/a11y";
+import { type App, launchApp, newUserDataDir, spawnApp, target, waitFor } from "./support/app";
+
+type Probe = { states: Array<[string, number]> };
+
+const LIGHT_BACKGROUND = "rgb(244, 246, 243)";
+const DARK_BACKGROUND = "rgb(14, 22, 19)";
+
+async function waitForReady(page: Page): Promise<void> {
+  await expect(page.getByText(/Answering \(process \d+\)/)).toBeVisible({ timeout: 15_000 });
+}
+
+test.describe(`foundation (${target})`, () => {
+  test.describe.configure({ mode: "serial" });
+
+  let app: App;
+
+  test.beforeAll(async () => {
+    app = await launchApp();
+    await waitForReady(app.page);
+  });
+
+  test.afterAll(async () => {
+    await app?.close();
+  });
+
+  test("opens a window served from app://", async () => {
+    const { page } = app;
+    expect(page.url()).toBe("app://treepeek/index.html");
+    await expect(page).toHaveTitle("Treepeek");
+    await expect(page.getByRole("heading", { name: "Treepeek" })).toBeVisible();
+  });
+
+  test("window.treepeek is frozen and exposes only contract methods", async () => {
+    const shape = await app.page.evaluate(() => {
+      const api = window.treepeek as unknown as Record<string, Record<string, object>>;
+      const keys = (value: object) => Object.keys(value).sort();
+      const before = api.main?.app;
+      let assignmentThrew = false;
+      try {
+        (api.main as Record<string, unknown>).app = { ping: () => "hijacked" };
+      } catch {
+        assignmentThrew = true;
+      }
+      (window as unknown as Record<string, unknown>).treepeek = "replaced";
+      return {
+        frozen: [
+          Object.isFrozen(api),
+          Object.isFrozen(api.main),
+          Object.isFrozen(api.core),
+          Object.isFrozen(api.main?.app),
+          Object.isFrozen(api.core?.app),
+        ],
+        top: keys(api),
+        main: keys(api.main ?? {}),
+        mainApp: keys(api.main?.app ?? {}),
+        mainSettings: keys(api.main?.settings ?? {}),
+        core: keys(api.core ?? {}),
+        coreApp: keys(api.core?.app ?? {}),
+        coreRequest: keys(api.core?.request ?? {}),
+        unchanged: api.main?.app === before && typeof window.treepeek === "object",
+        assignmentThrew,
+      };
+    });
+    expect(shape.frozen).toEqual([true, true, true, true, true]);
+    expect(shape.top).toEqual(["core", "main", "off", "on"]);
+    expect(shape.main).toEqual(["app", "settings"]);
+    expect(shape.mainApp).toEqual(["ping"]);
+    expect(shape.mainSettings).toEqual(["get", "set"]);
+    expect(shape.core).toEqual(["app", "request"]);
+    expect(shape.coreApp).toEqual(["info", "ping"]);
+    expect(shape.coreRequest).toEqual(["cancel"]);
+    expect(shape.unchanged).toBe(true);
+  });
+
+  test("require, process and eval are unavailable in the renderer", async () => {
+    // DevTools' Runtime.evaluate suspends CSP's eval block while it runs, so the eval
+    // attempts run afterwards in an ordinary page task, the way renderer code would.
+    const result = await app.page.evaluate(
+      () =>
+        new Promise<Record<string, string>>((resolve) => {
+          const attempt = (fn: () => unknown) => {
+            try {
+              fn();
+              return "allowed";
+            } catch (error) {
+              return (error as Error).name;
+            }
+          };
+          setTimeout(() => {
+            resolve({
+              require: typeof (globalThis as Record<string, unknown>).require,
+              process: typeof (globalThis as Record<string, unknown>).process,
+              // biome-ignore lint/security/noGlobalEval: proves the CSP blocks eval
+              eval: attempt(() => globalThis.eval("1 + 1")),
+              functionConstructor: attempt(() => new Function("return 1")()),
+              unknownEvent: attempt(() => window.treepeek.on("fs.changed" as never, () => {})),
+            });
+          }, 0);
+        }),
+    );
+    expect(result).toEqual({
+      require: "undefined",
+      process: "undefined",
+      eval: "EvalError",
+      functionConstructor: "EvalError",
+      unknownEvent: "Error",
+    });
+  });
+
+  test("navigating away and opening windows are blocked", async () => {
+    const { page, browser } = app;
+    const opened = await page.evaluate(() => window.open("https://example.com/") === null);
+    await page.evaluate(() => {
+      window.location.href = "https://example.com/";
+    });
+    await page.waitForTimeout(1_000);
+    expect(opened).toBe(true);
+    expect(page.url()).toBe("app://treepeek/index.html");
+    const pages = browser.contexts().flatMap((context) => context.pages());
+    expect(pages).toHaveLength(1);
+  });
+
+  test("every response carries the strict CSP, and nothing outside the renderer is served", async () => {
+    const result = await app.page.evaluate(async () => {
+      const response = await fetch("app://treepeek/index.html");
+      const traversal = await fetch("app://treepeek/..%2F..%2Fpackage.json").catch(() => null);
+      const otherHost = await fetch("app://elsewhere/index.html").catch(() => null);
+      const inline = document.createElement("script");
+      inline.textContent = "window.__inlineRan = true";
+      document.head.append(inline);
+      return {
+        csp: response.headers.get("content-security-policy"),
+        traversalStatus: traversal?.status ?? 0,
+        otherHostStatus: otherHost?.status ?? 0,
+        inlineRan: (window as unknown as Record<string, unknown>).__inlineRan === true,
+      };
+    });
+    expect(result.csp).toContain("default-src 'self'");
+    expect(result.csp).toContain("script-src 'self'");
+    expect(result.csp).not.toContain("unsafe-eval");
+    expect(result.csp).not.toMatch(/https?:/);
+    expect(result.traversalStatus).not.toBe(200);
+    expect(result.otherHostStatus).not.toBe(200);
+    expect(result.inlineRan).toBe(false);
+  });
+
+  test("app.ping round-trips to main and to the core service", async () => {
+    const result = await app.page.evaluate(async () => ({
+      main: await window.treepeek.main.app.ping(),
+      core: await window.treepeek.core.app.ping(),
+    }));
+    expect(result.main).toMatchObject({ ok: true, value: { process: "main" } });
+    expect(result.core).toMatchObject({ ok: true, value: { process: "core" } });
+  });
+
+  test("invalid payloads return invalidRequest instead of throwing", async () => {
+    const result = await app.page.evaluate(async () => ({
+      main: await window.treepeek.main.settings.set({ appearance: "neon" } as never),
+      core: await window.treepeek.core.request.cancel({} as never),
+    }));
+    expect(result.main).toMatchObject({ ok: false, error: { code: "invalidRequest" } });
+    expect(result.core).toMatchObject({ ok: false, error: { code: "invalidRequest" } });
+  });
+
+  test("the sqlite probe result is reported", async () => {
+    const info = await app.page.evaluate(() => window.treepeek.core.app.info());
+    expect(info.ok).toBe(true);
+    if (!info.ok) return;
+    test.info().annotations.push({
+      type: "node:sqlite",
+      description: JSON.stringify({ target, ...info.value.sqlite, node: info.value.versions.node }),
+    });
+    console.log(`[${target}] core service node:sqlite probe:`, JSON.stringify(info.value.sqlite));
+    expect(typeof info.value.sqlite.available).toBe("boolean");
+    expect(info.value.versions.electron).toMatch(/^45\./);
+  });
+
+  test("the theme switches live and both themes pass the AA contrast check", async () => {
+    const { page } = app;
+    for (const [appearance, isDark, background] of [
+      ["light", false, LIGHT_BACKGROUND],
+      ["dark", true, DARK_BACKGROUND],
+    ] as const) {
+      const started = Date.now();
+      const set = await page.evaluate(
+        (next) => window.treepeek.main.settings.set({ appearance: next }),
+        appearance,
+      );
+      expect(set).toMatchObject({ ok: true, value: { appearance } });
+      await page.waitForFunction(
+        (dark) => document.documentElement.classList.contains("dark") === dark,
+        isDark,
+        { timeout: 1_000 },
+      );
+      expect(Date.now() - started).toBeLessThan(1_000);
+      const painted = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+      expect(painted).toBe(background);
+
+      const violations = await contrastViolations(page);
+      expect(violations.map((violation) => `${appearance}: ${violation}`)).toEqual([]);
+    }
+    await page.evaluate(() => window.treepeek.main.settings.set({ appearance: "system" }));
+  });
+
+  test("the core service restarts after it is killed, and the window's port works again", async () => {
+    const { page } = app;
+    await page.evaluate(() => {
+      const probe: Probe = { states: [] };
+      (window as unknown as { __probe: Probe }).__probe = probe;
+      window.treepeek.on("core.state", (payload) => probe.states.push([payload.state, Date.now()]));
+    });
+    const before = await page.evaluate(() => window.treepeek.core.app.info());
+    expect(before.ok).toBe(true);
+    if (!before.ok) return;
+
+    const killedAt = Date.now();
+    process.kill(before.value.pid, "SIGKILL");
+
+    await page.waitForFunction(
+      (since) => {
+        const states = (window as unknown as { __probe: Probe }).__probe.states;
+        const restarting = states.findIndex(([state, at]) => state === "restarting" && at >= since);
+        return restarting >= 0 && states.slice(restarting + 1).some(([state]) => state === "ready");
+      },
+      killedAt,
+      { timeout: 3_000 },
+    );
+    const readyAt = await page.evaluate((since) => {
+      const states = (window as unknown as { __probe: Probe }).__probe.states;
+      return states.filter(([state, at]) => state === "ready" && at >= since).at(-1)?.[1] ?? 0;
+    }, killedAt);
+    expect(readyAt - killedAt).toBeLessThan(3_000);
+
+    await waitFor(
+      async () => {
+        const ping = await page.evaluate(() => window.treepeek.core.app.ping());
+        return ping.ok && ping.value.pid !== before.value.pid;
+      },
+      3_000,
+      "a ping answered by the restarted core service",
+    );
+  });
+
+  test("a second launch focuses the running app instead of starting another", async () => {
+    const second = spawnApp(app.userDataDir);
+    const code = await new Promise<number | null>((resolveExit) => {
+      const timer = setTimeout(() => resolveExit(-1), 15_000);
+      second.once("exit", (exitCode) => {
+        clearTimeout(timer);
+        resolveExit(exitCode);
+      });
+    });
+    expect(code).toBe(0);
+    await waitFor(
+      () =>
+        Promise.resolve(
+          app.log("main").includes("second instance launched; focused the existing window"),
+        ),
+      5_000,
+      "the running app to log the hand-over",
+    );
+    expect(app.browser.contexts().flatMap((context) => context.pages())).toHaveLength(1);
+  });
+});
+
+test.describe(`launch behaviour (${target})`, () => {
+  test("a new window in dark mode never paints white", async () => {
+    const app = await launchApp({ settings: { version: 1, appearance: "dark" } });
+    try {
+      // As early as the page is reachable, before waiting for React.
+      const early = await app.page.evaluate(() =>
+        document.documentElement.classList.contains("dark"),
+      );
+      const png = await app.page.screenshot();
+      const samples = await app.page.evaluate(async (base64) => {
+        const image = new Image();
+        image.src = `data:image/png;base64,${base64}`;
+        await image.decode();
+        const canvas = document.createElement("canvas");
+        canvas.width = image.width;
+        canvas.height = image.height;
+        const context = canvas.getContext("2d");
+        if (!context) return [];
+        context.drawImage(image, 0, 0);
+        const points = [
+          [4, image.height - 4],
+          [image.width - 4, image.height - 4],
+          [Math.floor(image.width / 2), Math.floor(image.height - 10)],
+          [Math.floor(image.width / 4), Math.floor(image.height / 2)],
+        ];
+        return points.map(([x, y]) => Array.from(context.getImageData(x ?? 0, y ?? 0, 1, 1).data));
+      }, png.toString("base64"));
+      expect(early).toBe(true);
+      expect(samples.length).toBeGreaterThan(0);
+      for (const [r = 255, g = 255, b = 255] of samples) {
+        expect(Math.max(r, g, b)).toBeLessThan(80);
+      }
+    } finally {
+      await app.close();
+    }
+  });
+
+  test("the appearance setting survives a restart", async () => {
+    const userDataDir = newUserDataDir();
+    const first = await launchApp({ userDataDir });
+    try {
+      const set = await first.page.evaluate(() =>
+        window.treepeek.main.settings.set({ appearance: "light" }),
+      );
+      expect(set).toMatchObject({ ok: true });
+    } finally {
+      await first.close();
+    }
+    const second = await launchApp({ userDataDir });
+    try {
+      const settings = await second.page.evaluate(() => window.treepeek.main.settings.get());
+      expect(settings).toEqual({ ok: true, value: { appearance: "light" } });
+      await expect
+        .poll(() => second.page.evaluate(() => document.documentElement.classList.contains("dark")))
+        .toBe(false);
+    } finally {
+      await second.close();
+    }
+  });
+});
