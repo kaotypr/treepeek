@@ -58,7 +58,7 @@ export function ScanWindow({ scanRoot }: { scanRoot: string }) {
 
   return (
     <ScanContext.Provider value={context}>
-      <div className="flex h-full flex-col" data-testid="scan-window">
+      <div className="flex h-full flex-col" data-testid="scan-window" data-scan-root={scanRoot}>
         <ConnectionBanner onReconnected={() => void rescan()} />
         <Toolbar onRefresh={() => void rescan()} />
         {git && !git.found ? (
