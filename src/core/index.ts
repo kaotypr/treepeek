@@ -5,6 +5,8 @@
 import type { MessagePortMain } from "electron";
 import * as v from "valibot";
 import { CONTRACT_VERSION, type CoreToMain, coreCalls, MainToCoreSchema, ok } from "../shared/ipc";
+import type { DiscoverOptions } from "./git/discover";
+import { rediscoverGit } from "./git/runtime";
 import { createLogger, initCoreLog } from "./log";
 import { probeSqlite } from "./probe-sqlite";
 import type { CoreRpc, PortLike } from "./rpc";
@@ -16,6 +18,18 @@ const sqlite = probeSqlite();
 
 function send(message: CoreToMain): void {
   parentPort.postMessage(message);
+}
+
+/** What discovery runs with; `core.init` sets both, `settings.gitPath` changes the override. */
+const discovery: DiscoverOptions = { override: null, loginPath: null };
+
+/** Runs git discovery and reports the result to main, which forwards it to every window. */
+async function discoverAndReport(): Promise<void> {
+  const state = await rediscoverGit({ ...discovery });
+  // A newer discovery started meanwhile; it reports instead.
+  if (state === undefined) return;
+  log.info("git discovery", state);
+  send({ type: "git.state", state });
 }
 
 function registerHandlers(rpc: CoreRpc): void {
@@ -68,6 +82,9 @@ parentPort.on("message", (event) => {
         sqlite,
       });
       send({ type: "core.ready", pid: process.pid, contractVersion: CONTRACT_VERSION });
+      discovery.override = message.gitPathOverride;
+      discovery.loginPath = message.loginPath;
+      void discoverAndReport();
       return;
     }
     case "core.health":
@@ -87,6 +104,10 @@ parentPort.on("message", (event) => {
     }
     case "session.close":
       sessions.close(message.windowId);
+      return;
+    case "settings.gitPath":
+      discovery.override = message.path;
+      void discoverAndReport();
       return;
   }
 });

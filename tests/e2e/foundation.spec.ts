@@ -1,3 +1,6 @@
+import { accessSync, constants, mkdtempSync, rmSync, symlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { delimiter, isAbsolute, join } from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import { contrastViolations } from "./support/a11y";
 import { type App, launchApp, newUserDataDir, spawnApp, target, waitFor } from "./support/app";
@@ -6,6 +9,20 @@ type Probe = { states: Array<[string, number]> };
 
 const LIGHT_BACKGROUND = "rgb(244, 246, 243)";
 const DARK_BACKGROUND = "rgb(14, 22, 19)";
+
+/** The git on the test runner's PATH, as an absolute path. */
+function gitOnPath(): string {
+  for (const folder of (process.env.PATH ?? "").split(delimiter)) {
+    if (!isAbsolute(folder)) continue;
+    try {
+      accessSync(join(folder, "git"), constants.X_OK);
+      return join(folder, "git");
+    } catch {
+      // Keep looking.
+    }
+  }
+  throw new Error("The end-to-end tests need git on the PATH");
+}
 
 async function waitForReady(page: Page): Promise<void> {
   await expect(page.getByText(/Answering \(process \d+\)/)).toBeVisible({ timeout: 15_000 });
@@ -164,6 +181,31 @@ test.describe(`foundation (${target})`, () => {
     expect(result.core).toMatchObject({ ok: false, error: { code: "invalidRequest" } });
   });
 
+  test("git.state reports the git the core service found, and the renderer cannot change it", async () => {
+    const { page } = app;
+    const state = await page.evaluate(
+      () =>
+        new Promise((resolve) => {
+          const stop = window.treepeek.on("git.state", (payload) => {
+            stop();
+            resolve(payload);
+          });
+        }),
+    );
+    console.log(`[${target}] git.state:`, JSON.stringify(state));
+    expect(state).toMatchObject({ found: true, path: expect.stringMatching(/^\//) });
+    const version = (state as { version: string }).version.split(".").map(Number);
+    expect(version[0] ?? 0).toBeGreaterThanOrEqual(2);
+    if (version[0] === 2) expect(version[1] ?? 0).toBeGreaterThanOrEqual(36);
+
+    const set = await page.evaluate(() =>
+      window.treepeek.main.settings.set({ gitPath: "/tmp/evil" } as never),
+    );
+    expect(set).toMatchObject({ ok: false, error: { code: "invalidRequest" } });
+    const settings = await page.evaluate(() => window.treepeek.main.settings.get());
+    expect(settings).toMatchObject({ ok: true, value: { gitPath: null } });
+  });
+
   test("the sqlite probe result is reported", async () => {
     const info = await app.page.evaluate(() => window.treepeek.core.app.info());
     expect(info.ok).toBe(true);
@@ -302,6 +344,47 @@ test.describe(`launch behaviour (${target})`, () => {
     }
   });
 
+  test("the git override from settings is tried first, and a missing one falls back", async () => {
+    const realGit = gitOnPath();
+    const folder = mkdtempSync(join(tmpdir(), "treepeek-e2e-git-"));
+    const override = join(folder, "git");
+    symlinkSync(realGit, override);
+    const readGitState = (page: Page) =>
+      page.evaluate(
+        () =>
+          new Promise<unknown>((resolve) => {
+            const stop = window.treepeek.on("git.state", (payload) => {
+              stop();
+              resolve(payload);
+            });
+          }),
+      );
+    try {
+      const withOverride = await launchApp({
+        settings: { appearance: "system", gitPath: override },
+      });
+      try {
+        expect(await readGitState(withOverride.page)).toMatchObject({
+          found: true,
+          path: override,
+        });
+      } finally {
+        await withOverride.close();
+      }
+      const missing = join(folder, "missing", "git");
+      const withMissing = await launchApp({ settings: { appearance: "system", gitPath: missing } });
+      try {
+        const state = await readGitState(withMissing.page);
+        expect(state).toMatchObject({ found: true });
+        expect(state).not.toMatchObject({ path: missing });
+      } finally {
+        await withMissing.close();
+      }
+    } finally {
+      rmSync(folder, { recursive: true, force: true });
+    }
+  });
+
   test("the appearance setting survives a restart", async () => {
     const userDataDir = newUserDataDir();
     const first = await launchApp({ userDataDir });
@@ -316,7 +399,7 @@ test.describe(`launch behaviour (${target})`, () => {
     const second = await launchApp({ userDataDir });
     try {
       const settings = await second.page.evaluate(() => window.treepeek.main.settings.get());
-      expect(settings).toEqual({ ok: true, value: { appearance: "light" } });
+      expect(settings).toEqual({ ok: true, value: { appearance: "light", gitPath: null } });
       await expect
         .poll(() => second.page.evaluate(() => document.documentElement.classList.contains("dark")))
         .toBe(false);

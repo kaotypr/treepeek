@@ -1,4 +1,5 @@
 import * as v from "valibot";
+import { GitStateSchema } from "./contract";
 import { IpcErrorSchema } from "./result";
 
 /** Electron IPC channel names between a window's preload and main. Nothing else is used. */
@@ -26,18 +27,25 @@ export const MainToCoreSchema = v.variant("type", [
     type: v.literal("core.init"),
     contractVersion: v.number(),
     userDataDir: v.pipe(v.string(), v.minLength(1)),
+    /** The git binary from settings, tried before anything else. */
     gitPathOverride: v.nullable(v.string()),
+    /** `PATH` from the user's login shell, read once by main; `null` when it could not be read. */
+    loginPath: v.nullable(v.string()),
   }),
   v.object({ type: v.literal("core.health"), id: v.number() }),
   /** Carries one MessagePort in the message's `ports`. */
   v.object({ type: v.literal("session.attach"), windowId: WindowId }),
   v.object({ type: v.literal("session.close"), windowId: WindowId }),
+  /** The git binary setting changed: discovery runs again with the new override. */
+  v.object({ type: v.literal("settings.gitPath"), path: v.nullable(v.string()) }),
 ]);
 export type MainToCore = v.InferOutput<typeof MainToCoreSchema>;
 
 export const CoreToMainSchema = v.variant("type", [
   v.object({ type: v.literal("core.ready"), pid: v.number(), contractVersion: v.number() }),
   v.object({ type: v.literal("core.health"), id: v.number() }),
+  /** After every discovery; main forwards it to every window as `git.state`. */
+  v.object({ type: v.literal("git.state"), state: GitStateSchema }),
 ]);
 export type CoreToMain = v.InferOutput<typeof CoreToMainSchema>;
 

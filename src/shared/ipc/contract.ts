@@ -1,4 +1,5 @@
 import * as v from "valibot";
+import { GIT_PROBLEMS } from "../domain/git";
 import { AppearanceSchema, SettingsPatchSchema, SettingsSchema } from "../settings";
 import { type CallMap, defineCall, defineEvent, type EventMap } from "./define";
 
@@ -6,7 +7,7 @@ import { type CallMap, defineCall, defineEvent, type EventMap } from "./define";
  * Bumped whenever a channel's shape changes. Main, the core service and every window come
  * from one build, so a mismatch means something is badly wrong; it is still checked.
  */
-export const CONTRACT_VERSION = 1;
+export const CONTRACT_VERSION = 2;
 
 const Empty = v.strictObject({});
 
@@ -19,6 +20,16 @@ export type SqliteProbe = v.InferOutput<typeof SqliteProbeSchema>;
 
 export const CoreStateSchema = v.picklist(["ready", "restarting", "failed"]);
 export type CoreState = v.InferOutput<typeof CoreStateSchema>;
+
+/** The domain's `GitState` (`shared/domain/git.ts`); a test keeps the two identical. */
+export const GitStateSchema = v.variant("found", [
+  v.object({ found: v.literal(true), path: v.string(), version: v.string() }),
+  v.object({
+    found: v.literal(false),
+    problem: v.picklist(GIT_PROBLEMS),
+    detail: v.exactOptional(v.string()),
+  }),
+]);
 
 // Renderer ↔ main (`ipcRenderer.invoke`)
 
@@ -49,6 +60,12 @@ export const mainEvents = {
   "core.state": defineEvent({
     name: "core.state",
     payload: v.object({ state: CoreStateSchema }),
+    sticky: true,
+  }),
+  /** The git binary the core service found, or why none is usable (the setup screen). */
+  "git.state": defineEvent({
+    name: "git.state",
+    payload: GitStateSchema,
     sticky: true,
   }),
 } as const satisfies EventMap;

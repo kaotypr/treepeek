@@ -5,6 +5,7 @@ import {
   utilityProcess,
 } from "electron";
 import * as v from "valibot";
+import type { GitState } from "../shared/domain/git";
 import { CONTRACT_VERSION, type CoreState, CoreToMainSchema, IPC_CHANNELS } from "../shared/ipc";
 import type { MainToCore } from "../shared/ipc/messages";
 import type { Logger } from "../shared/log";
@@ -14,7 +15,10 @@ export interface CoreSupervisorOptions {
   entry: string;
   userDataDir: string;
   log: Logger;
+  /** The git binary from settings; change it later with `setGitPathOverride`. */
   gitPathOverride?: string | null;
+  /** `PATH` from the login shell (`shell-env.ts`); set it with `setLoginPath` before `start`. */
+  loginPath?: string | null;
   healthIntervalMs?: number;
   healthTimeoutMs?: number;
   /** Delay before each restart attempt; after the last one the state becomes `failed`. */
@@ -35,11 +39,13 @@ interface Attached {
  * stops answering, and hands every window a fresh MessagePort to it after each start.
  */
 export class CoreSupervisor {
-  readonly #options: Required<Omit<CoreSupervisorOptions, "gitPathOverride">> & {
-    gitPathOverride: string | null;
-  };
+  readonly #options: Required<Omit<CoreSupervisorOptions, "gitPathOverride" | "loginPath">>;
   readonly #windows = new Map<number, Attached>();
   readonly #stateListeners = new Set<(state: CoreState) => void>();
+  readonly #gitListeners = new Set<(state: GitState) => void>();
+  #gitPathOverride: string | null;
+  #loginPath: string | null;
+  #gitState: GitState | null = null;
   #child: UtilityProcess | null = null;
   #ready = false;
   #state: CoreState | null = null;
@@ -57,9 +63,10 @@ export class CoreSupervisor {
       healthTimeoutMs: 2_000,
       backoffMs: [1_000, 2_000, 5_000],
       stableAfterMs: 30_000,
-      gitPathOverride: null,
       ...options,
     };
+    this.#gitPathOverride = options.gitPathOverride ?? null;
+    this.#loginPath = options.loginPath ?? null;
   }
 
   /** The last state announced to windows, or `null` before the first start completes. */
@@ -69,6 +76,34 @@ export class CoreSupervisor {
 
   get pid(): number | undefined {
     return this.#child?.pid;
+  }
+
+  /** The core service's latest git discovery, or `null` before the first one reports. */
+  get gitState(): GitState | null {
+    return this.#gitState;
+  }
+
+  /** Sets the login `PATH` sent with every later `core.init`. */
+  setLoginPath(loginPath: string | null): void {
+    this.#loginPath = loginPath;
+  }
+
+  /**
+   * Changes the git binary override. A running core service re-runs discovery now; a
+   * restarted one gets the new value in `core.init`.
+   */
+  setGitPathOverride(path: string | null): void {
+    if (path === this.#gitPathOverride) return;
+    this.#gitPathOverride = path;
+    // Sent even before `core.ready`: the service handles messages in order, so this lands
+    // after the `core.init` that carried the old value.
+    this.#child?.postMessage({ type: "settings.gitPath", path } satisfies MainToCore);
+  }
+
+  /** Called with every git discovery result the core service reports. */
+  onGitState(listener: (state: GitState) => void): () => void {
+    this.#gitListeners.add(listener);
+    return () => this.#gitListeners.delete(listener);
   }
 
   start(): void {
@@ -131,7 +166,8 @@ export class CoreSupervisor {
       type: "core.init",
       contractVersion: CONTRACT_VERSION,
       userDataDir: this.#options.userDataDir,
-      gitPathOverride: this.#options.gitPathOverride,
+      gitPathOverride: this.#gitPathOverride,
+      loginPath: this.#loginPath,
     } satisfies MainToCore);
   }
 
@@ -164,6 +200,11 @@ export class CoreSupervisor {
           clearTimeout(this.#healthDeadline);
           this.#healthDeadline = null;
         }
+        return;
+      case "git.state":
+        this.#gitState = message.state;
+        this.#options.log.info("git discovery", message.state);
+        for (const listener of this.#gitListeners) listener(message.state);
         return;
     }
   }

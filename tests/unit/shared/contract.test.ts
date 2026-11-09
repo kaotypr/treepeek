@@ -1,15 +1,19 @@
 import { MessageChannel, type MessagePort } from "node:worker_threads";
 import * as v from "valibot";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, expectTypeOf, it } from "vitest";
 import { CoreRpc, type PortLike } from "../../../src/core/rpc";
 import { MainRouter } from "../../../src/main/router";
+import type { GitState } from "../../../src/shared/domain/git";
 import {
   type CallMap,
   CONTRACT_VERSION,
+  CoreToMainSchema,
   coreCalls,
   defineCall,
   err,
+  type GitStateSchema,
   IPC_ERROR_CODES,
+  MainToCoreSchema,
   mainCalls,
   mainEvents,
   ok,
@@ -112,9 +116,52 @@ describe("contract", () => {
     expect(unknownKey.ok).toBe(false);
   });
 
+  it("never lets the renderer set the git binary", () => {
+    const result = parseRequest(mainCalls["settings.set"], { gitPath: "/tmp/evil" });
+    expect(result).toMatchObject({ ok: false, error: { code: "invalidRequest" } });
+  });
+
+  it("validates git.state as the domain's GitState", () => {
+    expectTypeOf<v.InferOutput<typeof GitStateSchema>>().toEqualTypeOf<GitState>();
+    const payload = mainEvents["git.state"].payload;
+    expect(
+      v.safeParse(payload, { found: true, path: "/usr/bin/git", version: "2.39.5" }).success,
+    ).toBe(true);
+    expect(v.safeParse(payload, { found: false, problem: "tooOld", detail: "old" }).success).toBe(
+      true,
+    );
+    expect(v.safeParse(payload, { found: false, problem: "notFound" }).success).toBe(true);
+    expect(v.safeParse(payload, { found: false, problem: "gone" }).success).toBe(false);
+    expect(v.safeParse(payload, { found: true, path: "/usr/bin/git" }).success).toBe(false);
+  });
+
+  it("carries the login PATH in core.init and the git messages between main and core", () => {
+    const init = {
+      type: "core.init",
+      contractVersion: CONTRACT_VERSION,
+      userDataDir: "/tmp/u",
+      gitPathOverride: null,
+      loginPath: "/opt/homebrew/bin:/usr/bin",
+    };
+    expect(v.safeParse(MainToCoreSchema, init).success).toBe(true);
+    const { loginPath: _dropped, ...withoutPath } = init;
+    expect(v.safeParse(MainToCoreSchema, withoutPath).success).toBe(false);
+    expect(v.safeParse(MainToCoreSchema, { type: "settings.gitPath", path: null }).success).toBe(
+      true,
+    );
+    expect(
+      v.safeParse(CoreToMainSchema, {
+        type: "git.state",
+        state: { found: false, problem: "xcodeMissing" },
+      }).success,
+    ).toBe(true);
+    expect(CONTRACT_VERSION).toBe(2);
+  });
+
   it("marks state-like events sticky", () => {
     expect(mainEvents["theme.changed"].sticky).toBe(true);
     expect(mainEvents["core.state"].sticky).toBe(true);
+    expect(mainEvents["git.state"].sticky).toBe(true);
     expect(v.safeParse(mainEvents["core.state"].payload, { state: "gone" }).success).toBe(false);
   });
 });
@@ -228,7 +275,7 @@ describe("MainRouter (main path)", () => {
   it("returns invalidRequest for an invalid payload and rejects unknown channels", async () => {
     const router = new MainRouter(memoryLogger().log);
     router.handle(mainCalls["settings.set"], (_ctx, patch) =>
-      ok({ appearance: patch.appearance ?? "system" }),
+      ok({ appearance: patch.appearance ?? "system", gitPath: null }),
     );
     expect(
       await router.dispatch({ ch: "settings.set", p: { appearance: 1 } }, { windowId: 1 }),

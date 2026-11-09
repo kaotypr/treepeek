@@ -8,6 +8,7 @@ import { createLogger } from "./log";
 import { buildMenu } from "./menu";
 import { APP_URL, isAppUrl, registerAppProtocol, registerAppSchemePrivileged } from "./protocol";
 import { SettingsStore } from "./settings";
+import { loadLoginEnv } from "./shell-env";
 import { applyAppearance, onThemeChanged, resolvedTheme, themeState } from "./theme";
 import { createWindow, focusWindow, guardWebContents, WindowRegistry } from "./windows";
 
@@ -42,6 +43,9 @@ function start(): void {
   const settings = new SettingsStore(app.getPath("userData"), log.child("settings"));
   applyAppearance(settings.get().appearance);
 
+  // Read once, while the first window loads; the core service waits for it to find git.
+  const loginEnv = loadLoginEnv({ log: log.child("shell-env") });
+
   // Nothing in the renderer needs a browser permission; native actions go through main.
   session.defaultSession.setPermissionRequestHandler((_contents, _permission, callback) =>
     callback(false),
@@ -56,6 +60,7 @@ function start(): void {
     entry: join(outDir, "core", "index.js"),
     userDataDir: app.getPath("userData"),
     log: log.child("core-supervisor"),
+    gitPathOverride: settings.get().gitPath,
   });
 
   const registry = new WindowRegistry(() => {
@@ -68,6 +73,8 @@ function start(): void {
       emitToWindow(win, mainEvents["theme.changed"], themeState(), log);
       const state = supervisor.state;
       if (state) emitToWindow(win, mainEvents["core.state"], { state }, log);
+      const git = supervisor.gitState;
+      if (git) emitToWindow(win, mainEvents["git.state"], git, log);
     });
     supervisor.attach(win);
     return win;
@@ -91,6 +98,7 @@ function start(): void {
 
   settings.onChange((next, previous) => {
     if (next.appearance !== previous.appearance) applyAppearance(next.appearance);
+    if (next.gitPath !== previous.gitPath) supervisor.setGitPathOverride(next.gitPath);
   });
 
   onThemeChanged((state) => {
@@ -103,7 +111,16 @@ function start(): void {
   supervisor.onState((state) => {
     for (const win of registry.all()) emitToWindow(win, mainEvents["core.state"], { state }, log);
   });
-  supervisor.start();
+  supervisor.onGitState((state) => {
+    for (const win of registry.all()) emitToWindow(win, mainEvents["git.state"], state, log);
+  });
+
+  let quitting = false;
+  void loginEnv.then((env) => {
+    if (quitting) return;
+    supervisor.setLoginPath(env.PATH ?? null);
+    supervisor.start();
+  });
 
   registry.openOrFocus(HOME);
 
@@ -121,5 +138,8 @@ function start(): void {
     if (process.platform !== "darwin") app.quit();
   });
 
-  app.on("before-quit", () => supervisor.stop());
+  app.on("before-quit", () => {
+    quitting = true;
+    supervisor.stop();
+  });
 }
