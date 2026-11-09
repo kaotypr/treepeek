@@ -5,9 +5,9 @@ import type { Logger } from "../shared/log";
 import {
   DEFAULT_SETTINGS,
   type Settings,
-  type SettingsPatch,
-  SettingsPatchSchema,
   SettingsSchema,
+  type StoredSettingsPatch,
+  StoredSettingsPatchSchema,
 } from "../shared/settings";
 
 /** The on-disk format version of `settings.json`. */
@@ -48,8 +48,13 @@ export class SettingsStore {
     return this.#current;
   }
 
-  set(patch: SettingsPatch): Settings {
-    const checked = v.parse(SettingsPatchSchema, patch);
+  /**
+   * Applies a partial update. The renderer's `settings.set` payload is checked against the
+   * narrower `SettingsPatchSchema` before it gets here; main's own updates may also change
+   * fields the renderer cannot, such as `gitPath`.
+   */
+  set(patch: StoredSettingsPatch): Settings {
+    const checked = v.parse(StoredSettingsPatchSchema, patch);
     const next = v.parse(SettingsSchema, { ...this.#current, ...definedOnly(checked) });
     const previous = this.#current;
     this.#write(next);

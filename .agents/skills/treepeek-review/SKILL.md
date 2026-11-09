@@ -1,4 +1,5 @@
 ---
+
 name: treepeek-review
 description: Review a Treepeek change (a branch, a pull request, or uncommitted work) the way a principal engineer would - risks first, every finding verified against the code, read-only. Use when asked to review, audit or check a Treepeek diff before it merges.
 ---
@@ -154,12 +155,12 @@ a finding; a rule that turns out to be wrong is also a finding, against `AGENTS.
 
 ## Severity
 
-| Severity | Meaning |
-| --- | --- |
-| **Blocker** | Security hole, data loss or a write to a repository, crash or hang in ordinary use, broken contract between processes, a check that now fails |
-| **Major** | Wrong result in a realistic case, a resource or listener leak, risky code without the test that would catch its failure, a boundary rule bent |
-| **Minor** | Maintainability cost: unclear names, duplication, a needless abstraction, a weak test |
-| **Question** | Something that looks wrong but you could not prove; say what would settle it |
+| Severity     | Meaning                                                                                                                                       |
+| ------------ | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Blocker**  | Security hole, data loss or a write to a repository, crash or hang in ordinary use, broken contract between processes, a check that now fails |
+| **Major**    | Wrong result in a realistic case, a resource or listener leak, risky code without the test that would catch its failure, a boundary rule bent |
+| **Minor**    | Maintainability cost: unclear names, duplication, a needless abstraction, a weak test                                                         |
+| **Question** | Something that looks wrong but you could not prove; say what would settle it                                                                  |
 
 Leave out nits unless the person asked for them.
 

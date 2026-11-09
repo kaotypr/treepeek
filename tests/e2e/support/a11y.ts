@@ -10,6 +10,12 @@ export async function contrastViolations(page: Page): Promise<string[]> {
   const loaded = await page.evaluate(() => "axe" in window);
   if (!loaded) await page.evaluate(axe.source);
   return page.evaluate(async () => {
+    // Controls fade colours (`transition-colors`); after a theme switch axe would otherwise
+    // sample a colour halfway between the two themes.
+    // A transition replaced by another rejects `finished`; that one is over too.
+    await Promise.all(
+      document.getAnimations().map((animation) => animation.finished.catch(() => undefined)),
+    );
     const runner = (window as unknown as { axe: typeof import("axe-core") }).axe;
     const results = await runner.run(document, {
       runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] },

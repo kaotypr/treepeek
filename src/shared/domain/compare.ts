@@ -38,6 +38,13 @@ export const COMPARISON_KINDS: readonly ComparisonKind[] = Object.freeze([
   "sinceViewed",
 ]);
 
+/** The kinds `comparison.list` answers; `sinceViewed` is one file's comparison (review marks). */
+export type ListableComparisonKind = Exclude<ComparisonKind, "sinceViewed">;
+
+export const LISTABLE_COMPARISON_KINDS: readonly ListableComparisonKind[] = Object.freeze(
+  COMPARISON_KINDS.filter((kind): kind is ListableComparisonKind => kind !== "sinceViewed"),
+);
+
 /**
  * One side of a comparison.
  *
@@ -91,6 +98,29 @@ export interface FileChange {
    * would give the file (working tree side), or `deleted:<leftOid>` for a deletion.
    */
   resultHash: string;
-  /** Detected from the patch or a NUL byte. */
+  /**
+   * Detected from the patch or a NUL byte. A comparison list reads no blobs: it sniffs
+   * working-tree content (the first `DIFF_LIMITS.binarySniffBytes`) and leaves blob sides
+   * `false` until `diff.file` reads their patch.
+   */
   binary: boolean;
+}
+
+/**
+ * A comparison's file list, as `comparison.list` returns it.
+ *
+ * - `files`: one entry per path (in `working`, per path and category), sorted by path; in
+ *   `working`, staged first, then unstaged, then untracked.
+ * - `commits`: commits from the left commit to HEAD (to the start for `incoming`); every
+ *   kind but `working` reports it once its left side is a commit.
+ * - `contained`: whether HEAD is an ancestor of the compared ref (the start, the previous
+ *   checkout's HEAD, the base ref or the upstream).
+ * - `note`: a sentence for the person, such as why the list is partial.
+ */
+export interface ComparisonResult {
+  comparison: Comparison;
+  files: FileChange[];
+  commits?: number;
+  contained?: boolean;
+  note?: string;
 }

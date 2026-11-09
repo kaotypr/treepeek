@@ -6,6 +6,8 @@
  * relative. Commit ids are opaque strings: nothing assumes 40 hex characters.
  */
 
+import type { IpcErrorCode } from "../ipc/result";
+
 /** The folder a window scans. One per window. */
 export interface ScanRoot {
   /** Real absolute path; the scan root's identity. */
@@ -22,7 +24,12 @@ export interface FolderNode {
   depth: number;
   /** `relativePath` of the parent folder, or `null` for the scan root. */
   parent: string | null;
-  /** `path` of the checkout this folder is, or `null` when it is not a checkout. */
+  /**
+   * `path` of the checkout this folder holds (it has a `.git` file or folder), or `null`.
+   * The scan sends the folder tree before it validates the candidates, so a folder whose
+   * path gets no `scan.checkout` before `scan.done` (a stale `.git` file, say) turned out
+   * not to be a checkout.
+   */
   checkoutPath: string | null;
 }
 
@@ -109,8 +116,8 @@ export interface Checkout {
   kind: CheckoutKind;
   /** Branch name, or `null` when HEAD is detached. */
   branch: string | null;
-  /** Full HEAD commit id. */
-  head: string;
+  /** Full HEAD commit id, or `null` on an unborn branch (a repository without commits). */
+  head: string | null;
   /** The upstream and ahead/behind, or `null` when the branch has none. */
   upstream: Upstream | null;
   /** URL of the remote `origin`, or `null` when there is none. */
@@ -155,4 +162,16 @@ export interface TimelineEntry {
    */
   predecessor: string | null;
   relation: Relation;
+}
+
+/**
+ * A folder with a `.git` marker that the scan could not read as a checkout for a reason the
+ * person should see: Git's `safe.directory` refusal (`dubiousOwnership`), a timeout, or an
+ * error. Folders that are simply not checkouts (a stale `.git` file) are not problems.
+ */
+export interface ScanProblem {
+  /** Real absolute path of the folder. */
+  path: string;
+  code: IpcErrorCode;
+  message: string;
 }

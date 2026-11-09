@@ -5,8 +5,10 @@ import {
   utilityProcess,
 } from "electron";
 import * as v from "valibot";
+import type { GitState } from "../shared/domain/git";
 import { CONTRACT_VERSION, type CoreState, CoreToMainSchema, IPC_CHANNELS } from "../shared/ipc";
-import type { MainToCore } from "../shared/ipc/messages";
+import { MAX_PATH_LENGTH } from "../shared/ipc/domain-schemas";
+import { MAX_VALIDATE_PATHS, type MainToCore } from "../shared/ipc/messages";
 import type { Logger } from "../shared/log";
 
 export interface CoreSupervisorOptions {
@@ -14,13 +16,24 @@ export interface CoreSupervisorOptions {
   entry: string;
   userDataDir: string;
   log: Logger;
+  /** The git binary from settings; change it later with `setGitPathOverride`. */
   gitPathOverride?: string | null;
+  /** `PATH` from the login shell (`shell-env.ts`); set it with `setLoginPath` before `start`. */
+  loginPath?: string | null;
   healthIntervalMs?: number;
   healthTimeoutMs?: number;
   /** Delay before each restart attempt; after the last one the state becomes `failed`. */
   backoffMs?: readonly number[];
   /** How long the service must stay up before the backoff starts over. */
   stableAfterMs?: number;
+  /** How long `validatePaths` waits for the core service before answering "not in a scan". */
+  validateTimeoutMs?: number;
+}
+
+interface PendingValidation {
+  child: UtilityProcess;
+  count: number;
+  finish(valid: boolean[] | null): void;
 }
 
 interface Attached {
@@ -35,11 +48,13 @@ interface Attached {
  * stops answering, and hands every window a fresh MessagePort to it after each start.
  */
 export class CoreSupervisor {
-  readonly #options: Required<Omit<CoreSupervisorOptions, "gitPathOverride">> & {
-    gitPathOverride: string | null;
-  };
+  readonly #options: Required<Omit<CoreSupervisorOptions, "gitPathOverride" | "loginPath">>;
   readonly #windows = new Map<number, Attached>();
   readonly #stateListeners = new Set<(state: CoreState) => void>();
+  readonly #gitListeners = new Set<(state: GitState) => void>();
+  #gitPathOverride: string | null;
+  #loginPath: string | null;
+  #gitState: GitState | null = null;
   #child: UtilityProcess | null = null;
   #ready = false;
   #state: CoreState | null = null;
@@ -50,6 +65,8 @@ export class CoreSupervisor {
   #healthId = 0;
   #restartTimer: NodeJS.Timeout | null = null;
   #stableTimer: NodeJS.Timeout | null = null;
+  #validationId = 0;
+  readonly #validations = new Map<number, PendingValidation>();
 
   constructor(options: CoreSupervisorOptions) {
     this.#options = {
@@ -57,9 +74,11 @@ export class CoreSupervisor {
       healthTimeoutMs: 2_000,
       backoffMs: [1_000, 2_000, 5_000],
       stableAfterMs: 30_000,
-      gitPathOverride: null,
+      validateTimeoutMs: 5_000,
       ...options,
     };
+    this.#gitPathOverride = options.gitPathOverride ?? null;
+    this.#loginPath = options.loginPath ?? null;
   }
 
   /** The last state announced to windows, or `null` before the first start completes. */
@@ -71,6 +90,66 @@ export class CoreSupervisor {
     return this.#child?.pid;
   }
 
+  /** The core service's latest git discovery, or `null` before the first one reports. */
+  get gitState(): GitState | null {
+    return this.#gitState;
+  }
+
+  /** Sets the login `PATH` sent with every later `core.init`. */
+  setLoginPath(loginPath: string | null): void {
+    this.#loginPath = loginPath;
+  }
+
+  /**
+   * Changes the git binary override. A running core service re-runs discovery now; a
+   * restarted one gets the new value in `core.init`.
+   */
+  setGitPathOverride(path: string | null): void {
+    if (path === this.#gitPathOverride) return;
+    this.#gitPathOverride = path;
+    // Sent even before `core.ready`: the service handles messages in order, so this lands
+    // after the `core.init` that carried the old value.
+    this.#child?.postMessage({ type: "settings.gitPath", path } satisfies MainToCore);
+  }
+
+  /** Called with every git discovery result the core service reports. */
+  onGitState(listener: (state: GitState) => void): () => void {
+    this.#gitListeners.add(listener);
+    return () => this.#gitListeners.delete(listener);
+  }
+
+  /**
+   * Asks the core service which `paths` lie in some window's scan (the path rule), for the
+   * "Open in…" checks. Resolves one boolean per path, in order. Every path counts as not in
+   * a scan when the service is not ready, restarts, does not answer in time, or the request
+   * is out of bounds (more than `MAX_VALIDATE_PATHS` paths, an empty or overlong path).
+   */
+  validatePaths(paths: readonly string[]): Promise<boolean[]> {
+    const none = () => paths.map(() => false);
+    const child = this.#child;
+    const inBounds =
+      paths.length <= MAX_VALIDATE_PATHS &&
+      paths.every((path) => path.length > 0 && path.length <= MAX_PATH_LENGTH);
+    if (!child || !this.#ready || paths.length === 0 || !inBounds) {
+      return Promise.resolve(none());
+    }
+    this.#validationId += 1;
+    const id = this.#validationId;
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        this.#options.log.warn("paths.validate timed out", { id });
+        finish(null);
+      }, this.#options.validateTimeoutMs);
+      const finish = (valid: boolean[] | null) => {
+        if (!this.#validations.delete(id)) return;
+        clearTimeout(timer);
+        resolve(valid ?? none());
+      };
+      this.#validations.set(id, { child, count: paths.length, finish });
+      child.postMessage({ type: "paths.validate", id, paths: [...paths] } satisfies MainToCore);
+    });
+  }
+
   start(): void {
     this.#stopping = false;
     this.#spawn();
@@ -79,6 +158,7 @@ export class CoreSupervisor {
   stop(): void {
     this.#stopping = true;
     this.#clearTimers();
+    this.#failValidations(null);
     const child = this.#child;
     this.#child = null;
     this.#ready = false;
@@ -131,7 +211,8 @@ export class CoreSupervisor {
       type: "core.init",
       contractVersion: CONTRACT_VERSION,
       userDataDir: this.#options.userDataDir,
-      gitPathOverride: this.#options.gitPathOverride,
+      gitPathOverride: this.#gitPathOverride,
+      loginPath: this.#loginPath,
     } satisfies MainToCore);
   }
 
@@ -165,10 +246,29 @@ export class CoreSupervisor {
           this.#healthDeadline = null;
         }
         return;
+      case "git.state":
+        this.#gitState = message.state;
+        this.#options.log.info("git discovery", message.state);
+        for (const listener of this.#gitListeners) listener(message.state);
+        return;
+      case "paths.validate": {
+        const pending = this.#validations.get(message.id);
+        if (!pending || pending.child !== child) return;
+        pending.finish(message.valid.length === pending.count ? message.valid : null);
+        return;
+      }
+    }
+  }
+
+  /** Answers every pending `validatePaths` sent to `child` with "not in a scan". */
+  #failValidations(child: UtilityProcess | null): void {
+    for (const pending of [...this.#validations.values()]) {
+      if (child === null || pending.child === child) pending.finish(null);
     }
   }
 
   #onExit(child: UtilityProcess, code: number): void {
+    this.#failValidations(child);
     if (child !== this.#child) return;
     this.#child = null;
     this.#ready = false;
@@ -180,6 +280,7 @@ export class CoreSupervisor {
 
   #fail(child: UtilityProcess, reason: string): void {
     if (child !== this.#child) return;
+    this.#failValidations(child);
     this.#options.log.warn("restarting the core service", { reason });
     this.#child = null;
     this.#ready = false;

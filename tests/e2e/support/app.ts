@@ -22,6 +22,13 @@ import { type Browser, chromium, type Page } from "@playwright/test";
 const root = resolve(import.meta.dirname, "../../..");
 export const target = process.env.APP_TARGET === "packaged" ? "packaged" : "dev";
 
+/**
+ * `TREEPEEK_E2E_SHOW=1` shows the app's windows normally, to watch a run. Otherwise the app
+ * runs in background mode (`TREEPEEK_E2E_BACKGROUND`, see `src/main/windows.ts`), so test
+ * runs never pop windows up or take focus.
+ */
+export const showWindows = process.env.TREEPEEK_E2E_SHOW === "1";
+
 /** The lab build's folder: `bun run build:lab` writes it, tests add fixtures to it. */
 export const LAB_OUT_DIR = join(root, "out-lab");
 
@@ -130,6 +137,8 @@ export function spawnApp(
 ): ChildProcess {
   const { executable, args } = command(build);
   const env: NodeJS.ProcessEnv = { ...process.env, TREEPEEK_USER_DATA_DIR: userDataDir };
+  // Windows stay transparent, unfocused and click-through unless the run asks to watch.
+  if (!showWindows) env.TREEPEEK_E2E_BACKGROUND = "1";
   delete env.ELECTRON_RUN_AS_NODE;
   delete env.ELECTRON_RENDERER_URL;
   return spawn(executable, [...args, ...extraArgs], { env, stdio: "ignore" });

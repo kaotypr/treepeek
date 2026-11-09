@@ -12,16 +12,30 @@ export interface CreateWindowOptions {
 export const THEME_ARGUMENT = "--treepeek-theme=";
 
 /**
+ * Set to `1` by the end-to-end launcher so test runs leave the person's screen alone:
+ * windows open without taking focus, fully transparent and click-through, and the app
+ * gets no Dock icon. Chromium still treats the window as shown, so pages lay out, paint
+ * and run timers as they would on screen, and the tests drive them over DevTools.
+ */
+export const BACKGROUND_ENV = "TREEPEEK_E2E_BACKGROUND";
+
+export function inBackgroundMode(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env[BACKGROUND_ENV] === "1";
+}
+
+/**
  * Creates a hardened window: isolated, sandboxed, no Node, no navigation, no new windows.
  * It is painted with the theme's background and shown only once it has rendered.
  */
 export function createWindow(options: CreateWindowOptions): BrowserWindow {
+  const background = inBackgroundMode();
   const win = new BrowserWindow({
     width: 1280,
     height: 820,
     minWidth: 880,
     minHeight: 560,
     show: false,
+    opacity: background ? 0 : 1,
     title: "Treepeek",
     titleBarStyle: "hiddenInset",
     backgroundColor: WINDOW_BACKGROUND[options.theme],
@@ -37,11 +51,20 @@ export function createWindow(options: CreateWindowOptions): BrowserWindow {
       navigateOnDragDrop: false,
       spellcheck: false,
       safeDialogs: true,
+      // A transparent window may count as occluded; keep it rendering like a visible one.
+      backgroundThrottling: !background,
       additionalArguments: [`${THEME_ARGUMENT}${options.theme}`],
     },
   });
   guardWebContents(win.webContents);
-  win.once("ready-to-show", () => win.show());
+  win.once("ready-to-show", () => {
+    if (!background) {
+      win.show();
+      return;
+    }
+    win.setIgnoreMouseEvents(true);
+    win.showInactive();
+  });
   void win.loadURL(options.url);
   return win;
 }
@@ -101,6 +124,10 @@ export class WindowRegistry {
 }
 
 export function focusWindow(win: BrowserWindow): void {
+  if (inBackgroundMode()) {
+    if (!win.isVisible()) win.showInactive();
+    return;
+  }
   if (win.isMinimized()) win.restore();
   if (!win.isVisible()) win.show();
   win.focus();
