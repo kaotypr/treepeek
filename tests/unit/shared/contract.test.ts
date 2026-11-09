@@ -4,22 +4,37 @@ import { afterEach, describe, expect, expectTypeOf, it } from "vitest";
 import { CoreRpc, type PortLike } from "../../../src/core/rpc";
 import { MainRouter } from "../../../src/main/router";
 import type { GitState } from "../../../src/shared/domain/git";
+import type {
+  Checkout,
+  FolderNode,
+  Repository,
+  ScanProblem,
+  TimelineEntry,
+} from "../../../src/shared/domain/scan";
 import {
   type CallMap,
   CONTRACT_VERSION,
+  type CheckoutSchema,
   CoreToMainSchema,
   coreCalls,
+  coreEvents,
   defineCall,
+  defineEvent,
   err,
+  type FolderNodeSchema,
   type GitStateSchema,
   IPC_ERROR_CODES,
+  MAX_VALIDATE_PATHS,
   MainToCoreSchema,
   mainCalls,
   mainEvents,
   ok,
   type PortFromCore,
   parseRequest,
+  type RepositorySchema,
   type Result,
+  type ScanProblemSchema,
+  type TimelineEntrySchema,
 } from "../../../src/shared/ipc";
 import { createLogger, type Logger } from "../../../src/shared/log";
 
@@ -41,12 +56,19 @@ function client(port: MessagePort) {
   let nextId = 1;
   const waiting = new Map<number, (result: Result<unknown>) => void>();
   const hellos: number[] = [];
+  /** Every result and event in arrival order: `result:<id>` or the event's channel. */
+  const arrivals: string[] = [];
   port.on("message", (message: PortFromCore) => {
     if (message.t === "hello") hellos.push(message.contractVersion);
-    if (message.t === "result") waiting.get(message.id)?.(message.r as Result<unknown>);
+    if (message.t === "event") arrivals.push(message.ch);
+    if (message.t === "result") {
+      arrivals.push(`result:${message.id}`);
+      waiting.get(message.id)?.(message.r as Result<unknown>);
+    }
   });
   return {
     hellos,
+    arrivals,
     call(ch: string, p: unknown): Promise<Result<unknown>> {
       const id = nextId++;
       return new Promise((resolve) => {
@@ -155,7 +177,82 @@ describe("contract", () => {
         state: { found: false, problem: "xcodeMissing" },
       }).success,
     ).toBe(true);
-    expect(CONTRACT_VERSION).toBe(2);
+    expect(CONTRACT_VERSION).toBe(3);
+  });
+
+  it("carries paths.validate between main and core, bounded", () => {
+    const ask = { type: "paths.validate", id: 4, paths: ["/a", "/b c"] };
+    expect(v.safeParse(MainToCoreSchema, ask).success).toBe(true);
+    expect(v.safeParse(MainToCoreSchema, { ...ask, paths: [""] }).success).toBe(false);
+    expect(v.safeParse(MainToCoreSchema, { ...ask, id: 0 }).success).toBe(false);
+    const tooMany = Array.from({ length: MAX_VALIDATE_PATHS + 1 }, (_, i) => `/p${i}`);
+    expect(v.safeParse(MainToCoreSchema, { ...ask, paths: tooMany }).success).toBe(false);
+    expect(
+      v.safeParse(CoreToMainSchema, { type: "paths.validate", id: 4, valid: [true, false] })
+        .success,
+    ).toBe(true);
+  });
+
+  it("keeps the scan schemas and the domain types in step", () => {
+    expectTypeOf<v.InferOutput<typeof CheckoutSchema>>().toExtend<Checkout>();
+    expectTypeOf<Checkout>().toExtend<v.InferOutput<typeof CheckoutSchema>>();
+    expectTypeOf<v.InferOutput<typeof FolderNodeSchema>>().toEqualTypeOf<FolderNode>();
+    expectTypeOf<v.InferOutput<typeof RepositorySchema>>().toEqualTypeOf<Repository>();
+    expectTypeOf<v.InferOutput<typeof TimelineEntrySchema>>().toEqualTypeOf<TimelineEntry>();
+    expectTypeOf<v.InferOutput<typeof ScanProblemSchema>>().toEqualTypeOf<ScanProblem>();
+  });
+
+  it("validates the session, scan and start-override requests strictly", () => {
+    expect(parseRequest(coreCalls["session.open"], { scanRoot: "/x" }).ok).toBe(true);
+    expect(parseRequest(coreCalls["session.open"], { scanRoot: "" }).ok).toBe(false);
+    expect(parseRequest(coreCalls["session.open"], { scanRoot: "/x", extra: 1 }).ok).toBe(false);
+    expect(parseRequest(coreCalls["session.open"], { scanRoot: "/".repeat(4097) }).ok).toBe(false);
+    expect(parseRequest(coreCalls["scan.start"], { requestId: "r" }).ok).toBe(true);
+    expect(parseRequest(coreCalls["scan.start"], { requestId: "" }).ok).toBe(false);
+    const override = coreCalls["start.override"];
+    expect(parseRequest(override, { checkoutPath: "/x", commit: null }).ok).toBe(true);
+    expect(parseRequest(override, { checkoutPath: "/x", commit: "main" }).ok).toBe(true);
+    expect(parseRequest(override, { checkoutPath: "/x" }).ok).toBe(false);
+    expect(parseRequest(override, { checkoutPath: "/x", commit: "a".repeat(201) }).ok).toBe(false);
+    expect(parseRequest(override, { checkoutPath: "/x", commit: "" }).ok).toBe(false);
+  });
+
+  it("checks scan event payloads, which are not sticky", () => {
+    const checkout: Checkout = {
+      path: "/r/app",
+      kind: "main",
+      branch: null,
+      head: null,
+      upstream: null,
+      originUrl: null,
+      start: { unknown: true },
+      working: { staged: 0, unstaged: 0, untracked: 0 },
+      history: null,
+    };
+    const payload = coreEvents["scan.checkout"].payload;
+    expect(v.safeParse(payload, checkout).success).toBe(true);
+    expect(
+      v.safeParse(payload, {
+        ...checkout,
+        start: { commit: "a".repeat(40), observedAt: "2025-01-01T00:00:00Z", source: "reflog" },
+      }).success,
+    ).toBe(true);
+    expect(v.safeParse(payload, { ...checkout, start: { commit: "x" } }).success).toBe(false);
+    expect(v.safeParse(payload, { ...checkout, kind: "other" }).success).toBe(false);
+    const done = coreEvents["scan.done"].payload;
+    expect(
+      v.safeParse(done, { timeline: [], repositories: [], durationMs: 3, problems: [] }).success,
+    ).toBe(true);
+    expect(
+      v.safeParse(done, {
+        timeline: [],
+        repositories: [],
+        durationMs: 3,
+        problems: [{ path: "/r/x", code: "nonsense", message: "?" }],
+      }).success,
+    ).toBe(false);
+    expect(coreEvents["scan.checkout"].sticky).toBe(false);
+    expect(coreEvents["scan.done"].sticky).toBe(false);
   });
 
   it("marks state-like events sticky", () => {
@@ -241,6 +338,87 @@ describe("CoreRpc (core path)", () => {
     expect(cancel).toEqual({ ok: true, value: {} });
     expect(await pending).toMatchObject({ ok: false, error: { code: "cancelled" } });
     expect(seenSignal?.aborted).toBe(true);
+  });
+
+  it("posts a call's result before anything its afterReply work emits", async () => {
+    const tick = defineEvent({ name: "test.tick", payload: v.object({ n: v.number() }) });
+    const { rpc, client: c } = setup();
+    rpc.onCall(coreCalls["app.ping"], (ctx) => {
+      ctx.afterReply(async () => {
+        // Emitted synchronously, before any await: it must still follow the result.
+        rpc.emit(tick, { n: 1 });
+        await Promise.resolve();
+        rpc.emit(tick, { n: 2 });
+      });
+      return ok({ process: "core", pid: 1, at: 1 });
+    });
+    await c.call("app.ping", {});
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(c.arrivals).toEqual(["result:1", "test.tick", "test.tick"]);
+  });
+
+  it("keeps afterReply work cancellable by request id until it settles", async () => {
+    const slow = defineCall({
+      name: "test.slow",
+      request: v.strictObject({ requestId: v.string() }),
+      response: v.object({}),
+    });
+    const { rpc, client: c } = setup({ ...coreCalls, [slow.name]: slow });
+    let aborted = false;
+    let finished: () => void = () => undefined;
+    const settled = new Promise<void>((resolve) => {
+      finished = resolve;
+    });
+    rpc.onCall(slow, (ctx, _request, signal) => {
+      ctx.afterReply(
+        () =>
+          new Promise<void>((resolve) => {
+            signal.addEventListener("abort", () => {
+              aborted = true;
+              resolve();
+              finished();
+            });
+          }),
+      );
+      return ok({});
+    });
+    expect(await c.call("test.slow", { requestId: "bg" })).toEqual({ ok: true, value: {} });
+    // Still running, so the id is still taken.
+    expect(await c.call("test.slow", { requestId: "bg" })).toMatchObject({
+      ok: false,
+      error: { code: "invalidRequest" },
+    });
+    expect(await c.call("request.cancel", { requestId: "bg" })).toEqual({ ok: true, value: {} });
+    await settled;
+    expect(aborted).toBe(true);
+    // Released once it settled.
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(await c.call("test.slow", { requestId: "bg" })).toMatchObject({ ok: true });
+    rpc.close();
+  });
+
+  it("aborts afterReply work when the port closes, and drops it for a failed call", async () => {
+    const { rpc, client: c } = setup();
+    let signalSeen: AbortSignal | undefined;
+    let ranAfterError = false;
+    rpc.onCall(coreCalls["app.ping"], (ctx, _request, signal) => {
+      signalSeen = signal;
+      ctx.afterReply(() => new Promise<void>(() => undefined));
+      return ok({ process: "core", pid: 1, at: 1 });
+    });
+    rpc.onCall(coreCalls["app.info"], (ctx) => {
+      ctx.afterReply(async () => {
+        ranAfterError = true;
+      });
+      return err("internal", "no");
+    });
+    await c.call("app.ping", {});
+    await c.call("app.info", {});
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(ranAfterError).toBe(false);
+    expect(signalSeen?.aborted).toBe(false);
+    rpc.close();
+    expect(signalSeen?.aborted).toBe(true);
   });
 
   it("refuses a request id that is already in flight", async () => {

@@ -24,9 +24,21 @@ export interface PortLike {
   close(): void;
 }
 
-export interface CallContext {
+/** Who an RPC endpoint serves. */
+export interface RpcIdentity {
   windowId: number;
   log: Logger;
+}
+
+/** What a handler gets besides its request and signal. */
+export interface CallContext extends RpcIdentity {
+  /**
+   * Runs `task` once this call's result has been posted to the window, so anything the task
+   * emits arrives after the result. Until the task settles, the call's signal stays live
+   * and its `requestId` stays cancellable: `request.cancel` or the port closing aborts it.
+   * Tasks run only when the call succeeds; a failed or cancelled call drops them.
+   */
+  afterReply(task: () => Promise<void>): void;
 }
 
 export type CoreHandler<C extends CallDef> = (
@@ -45,24 +57,31 @@ interface Pending {
   cancel: () => void;
 }
 
+/** A finished call: its result, and what to run once that result has reached the window. */
+interface Completed {
+  result: Result<unknown>;
+  replied(): void;
+}
+
 /**
  * One window's RPC endpoint inside the core service. Every incoming call is checked
  * against the contract: unknown channels and payloads that fail their schema return
  * `invalidRequest`, and nothing a handler throws crosses the port.
  *
  * A call whose payload carries a `requestId` can be cancelled with `request.cancel`: its
- * handler's signal is aborted and the call resolves `cancelled` at once.
+ * handler's signal is aborted and the call resolves `cancelled` at once. Work a handler
+ * hands to `afterReply` stays cancellable the same way until it settles.
  */
 export class CoreRpc {
   readonly #port: PortLike;
-  readonly #ctx: CallContext;
+  readonly #ctx: RpcIdentity;
   readonly #calls: CallMap;
   readonly #handlers = new Map<string, Registered>();
   readonly #pending = new Map<string, Pending>();
   readonly #inflight = new Set<AbortController>();
   #closed = false;
 
-  constructor(port: PortLike, ctx: CallContext, calls: CallMap = coreCalls) {
+  constructor(port: PortLike, ctx: RpcIdentity, calls: CallMap = coreCalls) {
     this.#port = port;
     this.#ctx = ctx;
     this.#calls = calls;
@@ -93,24 +112,33 @@ export class CoreRpc {
     this.#port.postMessage({ t: "hello", contractVersion: CONTRACT_VERSION });
   }
 
-  /** Runs one call through validation, cancellation and error capture. */
+  /**
+   * Runs one call through validation, cancellation and error capture. Its `afterReply`
+   * tasks start once the result is returned.
+   */
   async dispatch(channel: string, payload: unknown): Promise<Result<unknown>> {
+    const call = await this.#run(channel, payload);
+    call.replied();
+    return call.result;
+  }
+
+  async #run(channel: string, payload: unknown): Promise<Completed> {
     const entry = Object.hasOwn(this.#calls, channel) ? this.#handlers.get(channel) : undefined;
     if (!entry) {
       this.#ctx.log.warn("rejected a call on an unknown channel", { channel });
-      return err("invalidRequest", `Unknown channel: ${channel}`);
+      return done(err("invalidRequest", `Unknown channel: ${channel}`));
     }
     const parsed = parseRequest(entry.call, payload);
     if (!parsed.ok) {
       this.#ctx.log.warn("rejected an invalid request", { channel, issues: parsed.error.detail });
-      return parsed;
+      return done(parsed);
     }
 
     // `request.cancel` names the call it cancels; it is not itself cancellable.
     const requestId =
       channel === coreCalls["request.cancel"].name ? undefined : readRequestId(parsed.value);
     if (requestId !== undefined && this.#pending.has(requestId)) {
-      return err("invalidRequest", `Request id already in use: ${requestId}`);
+      return done(err("invalidRequest", `Request id already in use: ${requestId}`));
     }
 
     const controller = new AbortController();
@@ -126,9 +154,16 @@ export class CoreRpc {
     };
     if (requestId !== undefined) this.#pending.set(requestId, { controller, cancel });
 
+    const tasks: Array<() => Promise<void>> = [];
+    const ctx: CallContext = {
+      ...this.#ctx,
+      afterReply: (task) => {
+        tasks.push(task);
+      },
+    };
     const run = (async (): Promise<Result<unknown>> => {
       try {
-        return await entry.handler(this.#ctx, parsed.value, controller.signal);
+        return await entry.handler(ctx, parsed.value, controller.signal);
       } catch (error) {
         if (controller.signal.aborted) return err("cancelled", `${channel} was cancelled`);
         this.#ctx.log.error("handler failed", { channel, error });
@@ -136,12 +171,36 @@ export class CoreRpc {
       }
     })();
 
-    try {
-      return await Promise.race([run, cancelled]);
-    } finally {
+    const result = await Promise.race([run, cancelled]);
+    const finish = () => {
       this.#inflight.delete(controller);
-      if (requestId !== undefined) this.#pending.delete(requestId);
+      if (requestId !== undefined && this.#pending.get(requestId)?.controller === controller) {
+        this.#pending.delete(requestId);
+      }
+    };
+    if (!result.ok || controller.signal.aborted || tasks.length === 0) {
+      finish();
+      return done(result);
     }
+    return {
+      result,
+      replied: () => {
+        void (async () => {
+          try {
+            for (const task of tasks) {
+              if (controller.signal.aborted || this.#closed) break;
+              await task();
+            }
+          } catch (error) {
+            if (!controller.signal.aborted) {
+              this.#ctx.log.error("work after a reply failed", { channel, error });
+            }
+          } finally {
+            finish();
+          }
+        })();
+      },
+    };
   }
 
   /** Aborts everything in flight and closes the port (window closed or re-attached). */
@@ -160,9 +219,15 @@ export class CoreRpc {
       return;
     }
     const { id, ch, p } = message.output;
-    const result = await this.dispatch(ch, p);
-    if (!this.#closed) this.#port.postMessage({ t: "result", id, r: result });
+    const call = await this.#run(ch, p);
+    if (!this.#closed) this.#port.postMessage({ t: "result", id, r: call.result });
+    // Posting is synchronous, so whatever the call's follow-up work emits comes after it.
+    call.replied();
   }
+}
+
+function done(result: Result<unknown>): Completed {
+  return { result, replied: () => undefined };
 }
 
 function readRequestId(value: unknown): string | undefined {
