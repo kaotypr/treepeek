@@ -1,0 +1,125 @@
+import { join } from "node:path";
+import { app, BrowserWindow, Menu, session } from "electron";
+import { mainCalls, mainEvents, ok } from "../shared/ipc";
+import { WINDOW_BACKGROUND } from "../shared/theme";
+import { CoreSupervisor } from "./core-supervisor";
+import { emitToWindow, handleMain, installMainIpc } from "./ipc";
+import { createLogger } from "./log";
+import { buildMenu } from "./menu";
+import { APP_URL, isAppUrl, registerAppProtocol, registerAppSchemePrivileged } from "./protocol";
+import { SettingsStore } from "./settings";
+import { applyAppearance, onThemeChanged, resolvedTheme, themeState } from "./theme";
+import { createWindow, focusWindow, guardWebContents, WindowRegistry } from "./windows";
+
+// Tests point the app at a throwaway profile. Must happen before anything reads userData,
+// including the single-instance lock, which is scoped to it.
+const userDataOverride = process.env.TREEPEEK_USER_DATA_DIR;
+if (userDataOverride) app.setPath("userData", userDataOverride);
+
+registerAppSchemePrivileged();
+
+const log = createLogger("main");
+const outDir = join(import.meta.dirname, "..");
+const devServerUrl = app.isPackaged ? undefined : process.env.ELECTRON_RENDERER_URL;
+
+/** Key of the window that has no scan root yet (the placeholder screen). */
+const HOME = "";
+
+if (!app.requestSingleInstanceLock()) {
+  log.info("another instance is running; handing over to it");
+  app.quit();
+} else {
+  void app.whenReady().then(start);
+}
+
+function start(): void {
+  log.info("starting", {
+    version: app.getVersion(),
+    electron: process.versions.electron,
+    packaged: app.isPackaged,
+  });
+
+  const settings = new SettingsStore(app.getPath("userData"), log.child("settings"));
+  applyAppearance(settings.get().appearance);
+
+  // Nothing in the renderer needs a browser permission; native actions go through main.
+  session.defaultSession.setPermissionRequestHandler((_contents, _permission, callback) =>
+    callback(false),
+  );
+  session.defaultSession.setPermissionCheckHandler(() => false);
+  app.on("web-contents-created", (_event, contents) => guardWebContents(contents));
+
+  registerAppProtocol(join(outDir, "renderer"));
+  Menu.setApplicationMenu(buildMenu());
+
+  const supervisor = new CoreSupervisor({
+    entry: join(outDir, "core", "index.js"),
+    userDataDir: app.getPath("userData"),
+    log: log.child("core-supervisor"),
+  });
+
+  const registry = new WindowRegistry(() => {
+    const win = createWindow({
+      theme: resolvedTheme(),
+      preload: join(outDir, "preload", "index.cjs"),
+      url: devServerUrl ?? APP_URL,
+    });
+    win.webContents.on("did-finish-load", () => {
+      emitToWindow(win, mainEvents["theme.changed"], themeState(), log);
+      const state = supervisor.state;
+      if (state) emitToWindow(win, mainEvents["core.state"], { state }, log);
+    });
+    supervisor.attach(win);
+    return win;
+  });
+
+  installMainIpc({
+    log: log.child("ipc"),
+    isTrustedSender: (event) => {
+      const frame = event.senderFrame;
+      if (!frame || frame.parent !== null) return false;
+      const win = BrowserWindow.fromWebContents(event.sender);
+      if (!win || !registry.has(win)) return false;
+      if (isAppUrl(frame.url)) return true;
+      return devServerUrl !== undefined && frame.url.startsWith(devServerUrl);
+    },
+  });
+
+  handleMain(mainCalls["app.ping"], () => ok({ process: "main", at: Date.now() }));
+  handleMain(mainCalls["settings.get"], () => ok(settings.get()));
+  handleMain(mainCalls["settings.set"], (_ctx, patch) => ok(settings.set(patch)));
+
+  settings.onChange((next, previous) => {
+    if (next.appearance !== previous.appearance) applyAppearance(next.appearance);
+  });
+
+  onThemeChanged((state) => {
+    for (const win of registry.all()) {
+      win.setBackgroundColor(WINDOW_BACKGROUND[state.resolved]);
+      emitToWindow(win, mainEvents["theme.changed"], state, log);
+    }
+  });
+
+  supervisor.onState((state) => {
+    for (const win of registry.all()) emitToWindow(win, mainEvents["core.state"], { state }, log);
+  });
+  supervisor.start();
+
+  registry.openOrFocus(HOME);
+
+  app.on("second-instance", () => {
+    const win = registry.all()[0] ?? registry.openOrFocus(HOME);
+    focusWindow(win);
+    log.info("second instance launched; focused the existing window");
+  });
+
+  app.on("activate", () => {
+    if (registry.all().length === 0) registry.openOrFocus(HOME);
+  });
+
+  app.on("window-all-closed", () => {
+    if (process.platform !== "darwin") app.quit();
+  });
+
+  app.on("before-quit", () => supervisor.stop());
+}
