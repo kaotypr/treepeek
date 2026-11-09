@@ -50,7 +50,7 @@ export function PierreDiffView({ diff, mode, theme, ref }: DiffViewProps) {
     const instance = new VirtualizedFileDiff<undefined, undefined>(
       viewOptions(mode, themeRef.current),
       virtualizer,
-      undefined,
+      VIRTUAL_METRICS,
       highlightPool(),
     );
     instance.render({ fileDiff: model, fileContainer: host, forceRender: true });
@@ -121,6 +121,13 @@ export function PierreDiffView({ diff, mode, theme, ref }: DiffViewProps) {
     </div>
   );
 }
+
+/**
+ * Rows rendered per virtualization chunk. The library's default (50) parses enough HTML in
+ * one frame to pass 50 ms under the CSP, which reports every inline style it blocks; 20
+ * keeps the worst frame well under that (see docs/decisions/diff-viewer.md).
+ */
+const VIRTUAL_METRICS = Object.freeze({ hunkLineCount: 20 });
 
 function viewOptions(
   mode: DiffViewMode,
