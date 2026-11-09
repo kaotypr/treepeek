@@ -63,7 +63,11 @@ function deliver(channel: string, payload: unknown): void {
     applyThemeClass((parsed.output as { resolved: string }).resolved);
   }
   if (channel === "core.state" && (parsed.output as { state: string }).state !== "ready") {
+    // The port's other end is gone. Fail what was sent and queue new calls until main
+    // hands over a port to the restarted service.
     failInFlight("The core service is restarting");
+    port?.close();
+    port = null;
   }
   for (const listener of listeners.get(channel) ?? []) {
     try {

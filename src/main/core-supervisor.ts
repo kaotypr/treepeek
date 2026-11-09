@@ -100,7 +100,9 @@ export class CoreSupervisor {
     const entry: Attached = { win, windowId, loaded: false };
     this.#windows.set(windowId, entry);
     const contents = win.webContents;
-    contents.on("did-start-loading", () => {
+    // A committed navigation (a reload) replaces the document and its preload. A blocked
+    // navigation never commits, so it must not mark the page as unloaded.
+    contents.on("did-navigate", () => {
       entry.loaded = false;
     });
     contents.on("did-finish-load", () => {
