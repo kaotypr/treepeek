@@ -26,7 +26,7 @@ describe("SettingsStore", () => {
     const reopened = new SettingsStore(dir);
     expect(reopened.get().appearance).toBe("dark");
     const onDisk = JSON.parse(readFileSync(join(dir, "settings.json"), "utf8"));
-    expect(onDisk).toEqual({ version: SETTINGS_VERSION, appearance: "dark" });
+    expect(onDisk).toEqual({ version: SETTINGS_VERSION, appearance: "dark", gitPath: null });
   });
 
   it("writes atomically, leaving no temporary file behind", () => {
@@ -66,5 +66,23 @@ describe("SettingsStore", () => {
     store.onChange((next, previous) => seen.push(`${previous.appearance}->${next.appearance}`));
     store.set({ appearance: "dark" });
     expect(seen).toEqual(["system->dark"]);
+  });
+  it("loads a file written before gitPath existed, with no override", () => {
+    writeFileSync(join(dir, "settings.json"), JSON.stringify({ version: 1, appearance: "dark" }));
+    expect(new SettingsStore(dir).get()).toEqual({ appearance: "dark", gitPath: null });
+  });
+
+  it("stores the git binary override from main, and clears it with null", () => {
+    const store = new SettingsStore(dir);
+    store.set({ gitPath: "/opt/homebrew/bin/git" });
+    expect(new SettingsStore(dir).get().gitPath).toBe("/opt/homebrew/bin/git");
+    store.set({ gitPath: null });
+    expect(new SettingsStore(dir).get().gitPath).toBeNull();
+  });
+
+  it("rejects a relative git path", () => {
+    const store = new SettingsStore(dir);
+    expect(() => store.set({ gitPath: "bin/git" })).toThrow();
+    expect(store.get().gitPath).toBeNull();
   });
 });
