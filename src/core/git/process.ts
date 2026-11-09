@@ -1,4 +1,5 @@
-import { type ChildProcess, spawn } from "node:child_process";
+import { type ChildProcess, type ChildProcessByStdio, spawn } from "node:child_process";
+import type { Readable, Writable } from "node:stream";
 import { type GitFailure, gitFailure } from "./errors";
 
 /** Stderr kept per process; git's messages are short, so this only stops runaways. */
@@ -159,6 +160,49 @@ export function runProcess(
       child.stdin.end(options.stdin);
     }
   });
+}
+
+/** A process with all three standard streams piped. */
+export type PipedProcess = ChildProcessByStdio<Writable, Readable, Readable>;
+
+/**
+ * Starts a long-lived program (a git batch process) with an argument array, never a shell,
+ * all three streams piped, leading its own process group like `runProcess` does. It counts
+ * in `spawnCount` and reports to `observeSpawns` like every other process.
+ *
+ * The caller owns the process: it reads the streams and stops it with `killProcessGroup`
+ * or by closing stdin. Throws a `GitError` (`gitNotFound`) when it cannot start.
+ */
+export function startProcess(
+  file: string,
+  args: readonly string[],
+  env: NodeJS.ProcessEnv,
+): PipedProcess {
+  let child: PipedProcess;
+  try {
+    child = spawn(file, [...args], { env, stdio: ["pipe", "pipe", "pipe"], detached: true });
+  } catch (error) {
+    throw gitFailure("spawn", error instanceof Error ? error.message : String(error));
+  }
+  // A failed start emits `error` on the next tick; without a listener it would crash.
+  child.on("error", () => undefined);
+  child.stdin.on("error", () => undefined);
+  const pid = child.pid;
+  if (pid === undefined) {
+    child.stdout.destroy();
+    child.stderr.destroy();
+    child.stdin.destroy();
+    throw gitFailure("spawn", "");
+  }
+  spawned += 1;
+  notify({ type: "spawn", pid, file, args });
+  child.on("close", () => notify({ type: "exit", pid, file, args }));
+  return child;
+}
+
+/** Kills a process and everything it started (its process group). */
+export function killProcessGroup(child: ChildProcess): void {
+  killGroup(child);
 }
 
 function killGroup(child: ChildProcess): void {

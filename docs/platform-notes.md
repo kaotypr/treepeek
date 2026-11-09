@@ -130,7 +130,9 @@ Confirmed on 2026-11-09 against Git's own sources in `git/git` on GitHub:
 | `diff --no-index`                                                                        | untracked files                 | ≤ 2.0.0    | tagged docs                       |
 | `ls-files --others --exclude-standard -z`                                                | untracked files                 | ≤ 2.0.0    | tagged docs                       |
 | `cat-file --batch`                                                                       | blob contents                   | ≤ 2.0.0    | tagged docs                       |
+| `cat-file --batch-command` (`info`, `contents`)                                          | blob size before its body       | **2.36.0** | release notes 2.36.0, tagged docs |
 | `hash-object --stdin-paths`                                                              | `resultHash`                    | ≤ 2.0.0    | tagged docs                       |
+| `hash-object --stdin`                                                                    | a symlink's `resultHash`        | ≤ 2.0.0    | tagged docs                       |
 | `-C <path>`, `-c <name>=<value>`                                                         | every call                      | ≤ 2.0.0    | tagged docs                       |
 | `-c core.pager=cat`, `color.ui=false`, `core.quotePath=false`, `diff.external=`          | hardening                       | ≤ 2.0.0    | tagged docs                       |
 | `-c log.showSignature=false`                                                             | hardening                       | 2.10.0     | release notes 2.10.0              |

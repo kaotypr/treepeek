@@ -57,6 +57,9 @@ describe("assertAllowedSubcommand", () => {
       ["diff", "--no-index", "-U3", "--", "/dev/null", "file"],
       ["cat-file", "--batch"],
       ["hash-object", "--stdin-paths"],
+      // The batch processes: blob size before body, and a symlink's target text.
+      ["cat-file", "--batch-command"],
+      ["hash-object", "--stdin"],
     ];
     for (const args of catalogue) expect(refusal(args), args.join(" ")).toBeNull();
   });
@@ -78,6 +81,8 @@ describe("assertAllowedSubcommand", () => {
       ["reflog", "expire", "--all"],
       ["reflog", "delete", "HEAD@{0}"],
       ["hash-object", "-tw", "--stdin"],
+      ["hash-object", "-w", "--stdin-paths"],
+      ["hash-object", "--stdin-paths", "-w"],
     ]) {
       expect(refusal(args), args.join(" ")).toBeInstanceOf(GitError);
     }
