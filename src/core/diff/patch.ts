@@ -65,8 +65,8 @@ const NUMSTAT_LINE = /^(\d+|-)\t(\d+|-)\t/;
  *
  * `runGit` adds `--no-ext-diff --no-textconv --no-color` and the `a/`/`b/` prefixes, and
  * its environment makes every path a literal name (`GIT_LITERAL_PATHSPECS`), so a name such
- * as `a[1].txt` matches only itself. Output is read up to `DIFF_LIMITS.patchBytes`; past it Git is stopped and the patch is
- * cut at the last whole hunk.
+ * as `a[1].txt` matches only itself. Output is read up to `DIFF_LIMITS.patchBytes`; past
+ * it Git is stopped and the patch is cut at the last whole hunk.
  *
  * An untracked symlink to a folder is the one file `diff --no-index` cannot read as a link
  * (it follows the link and fails), so its one-line patch, the link's target, is written

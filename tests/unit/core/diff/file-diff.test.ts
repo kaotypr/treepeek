@@ -42,6 +42,7 @@ let specsWt: FixtureCheckout;
 let app: FixtureRepo;
 let feature: FixtureCheckout;
 let empty: FixtureRepo;
+let conflict: FixtureRepo;
 let start: string;
 let head: string;
 let created: Harness;
@@ -125,6 +126,14 @@ beforeAll(async () => {
   empty = fx.repo("empty");
   empty.write({ "e.txt": "e\n" }).stage(["e.txt"]);
   empty.write({ "f.txt": "f\n" });
+
+  // A merge stopped on a conflict: Git lists the path with no blob on the index side.
+  conflict = fx.repo("conflict").commit({ "c.txt": "base\n" });
+  conflict.git(["switch", "--quiet", "-c", "other"], { records: true });
+  conflict.commit({ "c.txt": "theirs\n" });
+  conflict.git(["switch", "--quiet", "main"], { records: true });
+  conflict.commit({ "c.txt": "ours\n" });
+  conflict.git(["merge", "--quiet", "--no-edit", "other"], { okExitCodes: [1] });
 
   created = harness();
   client = created.open(1).client;
@@ -448,6 +457,29 @@ describe("diff.file in a checkout without commits", () => {
       ["added", "e\n"],
       ["untracked", "f\n"],
     ]);
+  });
+});
+
+describe("diff.file on a conflicted path", () => {
+  it("answers for every entry the working list holds, without a blob for the index side", async () => {
+    const listed = await client.call<ComparisonResult>("comparison.list", {
+      checkoutPath: conflict.path,
+      kind: "working",
+    });
+    if (!listed.ok) throw new Error(listed.error.message);
+    const entries = listed.value.files.filter((file) => file.path === "c.txt");
+    expect(entries.length).toBeGreaterThan(0);
+    for (const file of entries) {
+      const diff = await diffed(conflict, {
+        kind: "working",
+        path: file.path,
+        ...(file.category === undefined ? {} : { category: file.category }),
+      });
+      expect(diff.path).toBe("c.txt");
+      if (file.category === "unstaged") {
+        expect(diff.right).toBe(readFileSync(join(conflict.path, "c.txt"), "utf8"));
+      }
+    }
   });
 });
 

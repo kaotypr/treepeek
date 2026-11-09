@@ -42,7 +42,7 @@ const EMPTY: SideContent = Object.freeze({ omitted: false, data: Buffer.alloc(0)
  * - an empty side is empty;
  * - a commit or index side is its blob (`leftOid`/`rightOid`, from Git's own list), read
  *   through the repository's `cat-file` process, which reads only the size of a blob over
- *   the cap;
+ *   the cap; empty when Git listed no blob for it (a conflicted index entry);
  * - a working-tree side is the file on disk, read only after its real path is checked to
  *   lie inside the checkout, and opened without following a symlink. A symlink's content
  *   is its target text, as Git stores it; its target is never read. A file that is gone
@@ -65,9 +65,8 @@ export async function readSide(
     case "commit":
     case "index": {
       if (options.gitlink) return subproject(oid);
-      if (oid === undefined) {
-        throw new GitError("internal", `No blob id is known for the ${which} side of a file.`);
-      }
+      // Git lists no blob for a side it cannot name one for (a conflicted index entry).
+      if (oid === undefined) return EMPTY;
       const blob = await ctx.catFile.read(oid, DIFF_LIMITS.contentBytes, { signal: ctx.signal });
       return blob.tooLarge ? { omitted: true, binary: false } : { omitted: false, data: blob.data };
     }
