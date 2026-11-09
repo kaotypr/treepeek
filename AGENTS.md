@@ -11,20 +11,20 @@ the same pull request and say why.
 
 ## Commands
 
-| Task | Command |
-| --- | --- |
-| Install (exact, from the lockfile) | `bun install --frozen-lockfile` |
-| Run with hot reload | `bun run dev` |
-| Build `out/` | `bun run build` |
-| Lint and format check | `bun run lint` (fix formatting with `bun run format`) |
-| Type-check | `bun run typecheck` |
-| Unit tests | `bun run test` |
-| Build the development pages into `out-lab/` | `bun run build:lab` |
-| End-to-end tests (needs `bun run build` and `bun run build:lab`) | `bun run test:e2e` |
-| Watch an end-to-end run (windows shown normally) | `TREEPEEK_E2E_SHOW=1 bun run test:e2e` |
-| Diff viewer performance (local machine only) | `TREEPEEK_PERF=1 bun run test:e2e tests/e2e/diff-lab.perf.spec.ts` |
-| Package an unsigned arm64 app | `bun run package` |
-| End-to-end tests against the package | `APP_TARGET=packaged bun run test:e2e` |
+| Task                                                             | Command                                                            |
+| ---------------------------------------------------------------- | ------------------------------------------------------------------ |
+| Install (exact, from the lockfile)                               | `bun install --frozen-lockfile`                                    |
+| Run with hot reload                                              | `bun run dev`                                                      |
+| Build `out/`                                                     | `bun run build`                                                    |
+| Lint and format check                                            | `bun run lint` (fix formatting with `bun run format`)              |
+| Type-check                                                       | `bun run typecheck`                                                |
+| Unit tests                                                       | `bun run test`                                                     |
+| Build the development pages into `out-lab/`                      | `bun run build:lab`                                                |
+| End-to-end tests (needs `bun run build` and `bun run build:lab`) | `bun run test:e2e`                                                 |
+| Watch an end-to-end run (windows shown normally)                 | `TREEPEEK_E2E_SHOW=1 bun run test:e2e`                             |
+| Diff viewer performance (local machine only)                     | `TREEPEEK_PERF=1 bun run test:e2e tests/e2e/diff-lab.perf.spec.ts` |
+| Package an unsigned arm64 app                                    | `bun run package`                                                  |
+| End-to-end tests against the package                             | `APP_TARGET=packaged bun run test:e2e`                             |
 
 Bun installs packages and runs scripts only; Electron, electron-vite and electron-builder
 run on Node. Do not add `--bun` to scripts. `docs/platform-notes.md` records the platform
@@ -44,12 +44,12 @@ facts this setup rests on and when to re-check them.
 
 Four kinds of process. Each has one job and a list of things it never does.
 
-| Process | Source | Does | Never |
-| --- | --- | --- | --- |
-| Main | `src/main` | App lifecycle, one window per scan root, menus, dialogs, settings, theme, supervising the core service, handing each window a port to it | Runs git, reads repositories, or parses large output |
-| Core service (one `utilityProcess` for the app) | `src/core` | All git and filesystem work, scans, comparisons, diffs, watching, the local store, caches; one session per window | Creates windows or uses native UI |
-| Preload (per window) | `src/preload` | Builds the frozen `window.treepeek` API from the IPC contract | Exposes `ipcRenderer`, Node, or any channel not in the contract |
-| Renderer (per window) | `src/renderer` | The React UI | Uses Node, loads remote content, or talks to anything except `window.treepeek` |
+| Process                                         | Source         | Does                                                                                                                                     | Never                                                                          |
+| ----------------------------------------------- | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| Main                                            | `src/main`     | App lifecycle, one window per scan root, menus, dialogs, settings, theme, supervising the core service, handing each window a port to it | Runs git, reads repositories, or parses large output                           |
+| Core service (one `utilityProcess` for the app) | `src/core`     | All git and filesystem work, scans, comparisons, diffs, watching, the local store, caches; one session per window                        | Creates windows or uses native UI                                              |
+| Preload (per window)                            | `src/preload`  | Builds the frozen `window.treepeek` API from the IPC contract                                                                            | Exposes `ipcRenderer`, Node, or any channel not in the contract                |
+| Renderer (per window)                           | `src/renderer` | The React UI                                                                                                                             | Uses Node, loads remote content, or talks to anything except `window.treepeek` |
 
 `src/shared` holds what every process uses: domain types, the IPC contract and its
 schemas, constants, the logger and settings schema. It imports nothing outside itself and
@@ -63,26 +63,26 @@ the code to the process that owns it.
 
 ### Where things live
 
-| Concern | File |
-| --- | --- |
-| IPC contract (every channel), error codes | `src/shared/ipc/contract.ts`, `src/shared/ipc/result.ts` |
-| Main ↔ core and port message schemas | `src/shared/ipc/messages.ts` |
-| Window creation and navigation guards | `src/main/windows.ts` (`createWindow`, `guardWebContents`) |
-| `app://` protocol and the CSP | `src/main/protocol.ts`, plus the meta tag in `src/renderer/index.html` |
-| Trusted-sender check, permissions, startup | `src/main/index.ts` |
-| Main call routing and validation | `src/main/router.ts`, `src/main/ipc.ts` (`handleMain`) |
-| Core service lifecycle and restarts | `src/main/core-supervisor.ts` |
-| Core call routing, validation, cancellation | `src/core/rpc.ts` (`CoreRpc`) |
-| The preload API | `src/preload/index.ts`, its type in `src/shared/ipc/api.ts` |
-| Settings file | `src/main/settings.ts`, schema in `src/shared/settings.ts` |
-| Logger and redaction | `src/shared/log.ts` |
-| Domain types | `src/shared/domain/` |
-| Unified-patch parser | `src/shared/diff/parse-patch.ts` |
+| Concern                                                                     | File                                                                         |
+| --------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| IPC contract (every channel), error codes                                   | `src/shared/ipc/contract.ts`, `src/shared/ipc/result.ts`                     |
+| Main ↔ core and port message schemas                                        | `src/shared/ipc/messages.ts`                                                 |
+| Window creation and navigation guards                                       | `src/main/windows.ts` (`createWindow`, `guardWebContents`)                   |
+| `app://` protocol and the CSP                                               | `src/main/protocol.ts`, plus the meta tag in `src/renderer/index.html`       |
+| Trusted-sender check, permissions, startup                                  | `src/main/index.ts`                                                          |
+| Main call routing and validation                                            | `src/main/router.ts`, `src/main/ipc.ts` (`handleMain`)                       |
+| Core service lifecycle and restarts                                         | `src/main/core-supervisor.ts`                                                |
+| Core call routing, validation, cancellation                                 | `src/core/rpc.ts` (`CoreRpc`)                                                |
+| The preload API                                                             | `src/preload/index.ts`, its type in `src/shared/ipc/api.ts`                  |
+| Settings file                                                               | `src/main/settings.ts`, schema in `src/shared/settings.ts`                   |
+| Logger and redaction                                                        | `src/shared/log.ts`                                                          |
+| Domain types                                                                | `src/shared/domain/`                                                         |
+| Unified-patch parser                                                        | `src/shared/diff/parse-patch.ts`                                             |
 | Diff viewer (`DiffView`, the `@pierre/diffs` adapter, the highlight worker) | `src/renderer/diff-view/`; why this library: `docs/decisions/diff-viewer.md` |
-| Diff lab (development only; never in `bun run build`) | `src/renderer/dev/diff-lab/`, fixtures from `scripts/make-diff-fixtures.ts` |
-| Size limits, scan depth, git concurrency | `src/shared/constants.ts` |
-| Color tokens (light and dark) | `src/renderer/styles/tokens.css`, window background in `src/shared/theme.ts` |
-| Fuses, signing, minimum macOS | `electron-builder.yml` |
+| Diff lab (development only; never in `bun run build`)                       | `src/renderer/dev/diff-lab/`, fixtures from `scripts/make-diff-fixtures.ts`  |
+| Size limits, scan depth, git concurrency                                    | `src/shared/constants.ts`                                                    |
+| Color tokens (light and dark)                                               | `src/renderer/styles/tokens.css`, window background in `src/shared/theme.ts` |
+| Fuses, signing, minimum macOS                                               | `electron-builder.yml`                                                       |
 
 ## IPC rules
 
