@@ -55,7 +55,7 @@ const UNTRACKED_ARGS = ["ls-files", "--others", "--exclude-standard", "-z"] as c
 
 /**
  * One comparison's file list (`comparison.list`), with the git-service catalogue's
- * commands: `diff --raw -z --find-renames --no-abbrev`, plus
+ * commands: `diff --raw -z --find-renames --abbrev=64`, plus
  * `ls-files --others --exclude-standard -z` wherever the right side is the working tree.
  *
  * Caching (git-service design, "Caching"):

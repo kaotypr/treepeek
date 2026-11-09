@@ -134,17 +134,18 @@ export function mergeBase(
 
 /**
  * The flags of every comparison file list (git-service command catalogue): status, both
- * modes and both full blob ids in one pass, renames found. `--no-abbrev` prints whole ids
- * whatever the object format.
+ * modes and both full blob ids in one pass, renames found. Git caps `--abbrev=<n>` at the
+ * object format's id length, so 64 prints whole ids for SHA-1 and SHA-256 alike, where the
+ * catalogue's `--abbrev=40` would cut SHA-256 ids (`--no-abbrev` is undocumented).
  */
 export const RAW_DIFF_FLAGS: readonly string[] = Object.freeze([
   "--raw",
   "-z",
   "--find-renames",
-  "--no-abbrev",
+  "--abbrev=64",
 ]);
 
-/** `diff --raw -z --find-renames --no-abbrev <left> <right>` between two commits. */
+/** `diff --raw -z --find-renames --abbrev=64 <left> <right>` between two commits. */
 export function rawDiff(
   repo: RepositoryResources,
   left: string,
