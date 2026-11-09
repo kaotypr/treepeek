@@ -13,8 +13,8 @@ import type {
 } from "../../../src/shared/domain/scan";
 import {
   type CallMap,
-  CONTRACT_VERSION,
   type CheckoutSchema,
+  CONTRACT_VERSION,
   CoreToMainSchema,
   coreCalls,
   coreEvents,
