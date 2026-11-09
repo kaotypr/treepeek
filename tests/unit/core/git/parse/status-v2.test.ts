@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { GitParseError } from "../../../../../src/core/git/errors";
 import { parseStatusV2 } from "../../../../../src/core/git/parse/status-v2";
-import { resetGitRuntime, useTestGit } from "../../../../support/core-git";
+import { resetGitRuntime, setTestGit } from "../../../../support/core-git";
 import { type Fixture, fixture } from "../../../../support/git-fixture";
 import { git } from "./helpers";
 
@@ -16,7 +16,7 @@ const STATUS = [
 
 let fx: Fixture;
 beforeAll(() => {
-  useTestGit();
+  setTestGit();
   fx = fixture();
 });
 afterAll(() => {

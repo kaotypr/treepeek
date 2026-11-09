@@ -6,7 +6,7 @@ import {
   toIpcError,
 } from "../../../../src/core/git/errors";
 import { runGit } from "../../../../src/core/git/run";
-import { resetGitRuntime, useTestGit } from "../../../support/core-git";
+import { resetGitRuntime, setTestGit } from "../../../support/core-git";
 import {
   commitAll,
   makeTempRepo,
@@ -107,20 +107,20 @@ describe("error mapping against a real git", () => {
 
   it("reports git's real safe.directory refusal as dubiousOwnership", async () => {
     // Git's own test hook makes it treat the repository as owned by someone else.
-    useTestGit({ GIT_TEST_ASSUME_DIFFERENT_OWNER: "1" });
+    setTestGit({ GIT_TEST_ASSUME_DIFFERENT_OWNER: "1" });
     const error = await failure(["rev-parse", "--show-toplevel"]);
     expect(error.code).toBe("dubiousOwnership");
     expect(error.detail.stderr).toMatch(/dubious ownership/);
   });
 
   it("reports a missing folder and a folder outside any repository", async () => {
-    useTestGit();
+    setTestGit();
     expect((await failure(["status"], "/nonexistent-treepeek")).code).toBe("notARepository");
     expect((await failure(["rev-parse", "--show-toplevel"], "/")).code).toBe("notARepository");
   });
 
   it("reports unknown revisions as refNotFound", async () => {
-    useTestGit();
+    setTestGit();
     expect((await failure(["rev-list", "--count", "nope..HEAD"])).code).toBe("refNotFound");
     expect((await failure(["diff", "--raw", "nope", "HEAD"])).code).toBe("refNotFound");
     expect((await failure(["merge-base", "--is-ancestor", "nope", "HEAD"])).code).toBe(

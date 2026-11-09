@@ -1,13 +1,13 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { GitParseError } from "../../../../../src/core/git/errors";
 import { parseNulList } from "../../../../../src/core/git/parse/ls-files";
-import { resetGitRuntime, useTestGit } from "../../../../support/core-git";
+import { resetGitRuntime, setTestGit } from "../../../../support/core-git";
 import { type Fixture, fixture } from "../../../../support/git-fixture";
 import { git } from "./helpers";
 
 let fx: Fixture;
 beforeAll(() => {
-  useTestGit();
+  setTestGit();
   fx = fixture();
 });
 afterAll(() => {

@@ -8,7 +8,7 @@ import { observeSpawns, type SpawnEvent, spawnCount } from "../../../../src/core
 import { gitArgs, HARDENING_CONFIG, runGit } from "../../../../src/core/git/run";
 import { setGitBinary } from "../../../../src/core/git/runtime";
 import { GIT_CONCURRENCY } from "../../../../src/shared/constants";
-import { resetGitRuntime, useFakeGit, useTestGit } from "../../../support/core-git";
+import { resetGitRuntime, setFakeGit, setTestGit } from "../../../support/core-git";
 import {
   commitAll,
   gitIn,
@@ -17,6 +17,7 @@ import {
   type TempRepo,
   writeRepoFile,
 } from "../../../support/git";
+import { fixture } from "../../../support/git-fixture";
 
 let scripts: string;
 let repo: TempRepo;
@@ -104,14 +105,14 @@ describe("gitArgs", () => {
 
 describe("runGit", () => {
   it("runs the real git and returns stdout as bytes", async () => {
-    useTestGit();
+    setTestGit();
     const output = await runGit(repo.path, ["rev-parse", "--show-toplevel"], { signal: signal() });
     expect(output.code).toBe(0);
     expect(output.stdout.toString("utf8")).toBe(`${repo.path}\n`);
   });
 
   it("writes stdin and closes it", async () => {
-    useTestGit();
+    setTestGit();
     const output = await runGit(repo.path, ["hash-object", "--stdin"], {
       signal: signal(),
       stdin: "hello\n",
@@ -122,7 +123,7 @@ describe("runGit", () => {
   });
 
   it("accepts the exit codes the caller allows", async () => {
-    useTestGit();
+    setTestGit();
     const output = await runGit(repo.path, ["merge-base", "--is-ancestor", "HEAD", "HEAD~0"], {
       signal: signal(),
       okExitCodes: [0, 1],
@@ -134,7 +135,7 @@ describe("runGit", () => {
   });
 
   it("refuses every forbidden subcommand before starting a process", async () => {
-    useTestGit();
+    setTestGit();
     const before = spawnCount();
     for (const entry of FORBIDDEN) {
       await expect(
@@ -146,7 +147,7 @@ describe("runGit", () => {
   });
 
   it("kills a call that passes its byte cap and returns outputTooLarge", async () => {
-    useTestGit();
+    setTestGit();
     const { events, stop } = recordSpawns();
     try {
       await expect(
@@ -164,7 +165,7 @@ describe("runGit", () => {
   });
 
   it("times out a hanging command and kills it", async () => {
-    useFakeGit(script("hang.sh", "exec sleep 30"));
+    setFakeGit(script("hang.sh", "exec sleep 30"));
     const { events, stop } = recordSpawns();
     const started = Date.now();
     try {
@@ -180,7 +181,7 @@ describe("runGit", () => {
   });
 
   it("kills the child when the signal aborts (its pid is gone)", async () => {
-    useFakeGit(script("hang-abort.sh", "exec sleep 30"));
+    setFakeGit(script("hang-abort.sh", "exec sleep 30"));
     const controller = new AbortController();
     let pid = -1;
     const stop = observeSpawns((event) => {
@@ -202,7 +203,7 @@ describe("runGit", () => {
 
   it("also kills what the child started (its process group)", async () => {
     const childPidFile = join(scripts, "grandchild.pid");
-    useFakeGit(script("spawns.sh", `sleep 30 &\necho $! > '${childPidFile}'\nwait`));
+    setFakeGit(script("spawns.sh", `sleep 30 &\necho $! > '${childPidFile}'\nwait`));
     const controller = new AbortController();
     // A script macOS has not seen before can take a while to start, so wait for the
     // grandchild to exist rather than for a fixed time.
@@ -227,7 +228,7 @@ describe("runGit", () => {
   });
 
   it("never runs more than GIT_CONCURRENCY processes at once", async () => {
-    useFakeGit(script("slow.sh", "sleep 0.1\necho ok"));
+    setFakeGit(script("slow.sh", "sleep 0.1\necho ok"));
     let running = 0;
     let peak = 0;
     const stop = observeSpawns((event) => {
@@ -247,7 +248,7 @@ describe("runGit", () => {
   });
 
   it("passes the argument array and environment through without a shell", async () => {
-    useFakeGit(
+    setFakeGit(
       script(
         "echo.sh",
         `printf '%s\\0' "$@"; printf 'LOCKS=%s;LC=%s' "$GIT_OPTIONAL_LOCKS" "$LC_ALL"`,
@@ -276,7 +277,7 @@ describe("runGit", () => {
   });
 
   it("fails with gitNotFound when the binary has gone", async () => {
-    useFakeGit(join(scripts, "missing-git"));
+    setFakeGit(join(scripts, "missing-git"));
     await expect(runGit(repo.path, ["status"], { signal: signal() })).rejects.toMatchObject({
       code: "gitNotFound",
     });
@@ -285,8 +286,6 @@ describe("runGit", () => {
 
 describe("runGit hardening (smoke test; the full suite comes with the scan)", () => {
   it("fires none of the default traps in a repository's own config", async () => {
-    const { existsSync } = await import("node:fs");
-    const { fixture } = await import("../../../support/git-fixture");
     const fx = fixture();
     try {
       const marker = fx.outsidePath("marker.log");
@@ -294,7 +293,7 @@ describe("runGit hardening (smoke test; the full suite comes with the scan)", ()
       const start = trapped.head();
       trapped.maliciousConfig(marker).signedCommit();
       trapped.write({ "a.txt": "2\n", "new.txt": "n\n" });
-      useTestGit();
+      setTestGit();
       for (const args of [
         ["status", "--porcelain=v2", "-z", "--branch", "--untracked-files=all", "--no-renames"],
         ["reflog", "show", "--date=iso-strict", "--format=%H%x09%gd", "-z", "HEAD"],

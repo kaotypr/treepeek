@@ -7,7 +7,7 @@ import { resetGitRuntime, setGitBinary } from "../../src/core/git/runtime";
 import { gitTestEnv, testGitPath, testGitVersion } from "./git";
 
 /** Makes `runGit` use the tests' git. Pass `extraEnv` to add variables after the table. */
-export function useTestGit(extraEnv: Readonly<Record<string, string>> = {}): void {
+export function setTestGit(extraEnv: Readonly<Record<string, string>> = {}): void {
   setGitBinary(
     { found: true, path: testGitPath(), version: testGitVersion() },
     { ...gitEnv(gitTestEnv()), ...extraEnv },
@@ -15,7 +15,7 @@ export function useTestGit(extraEnv: Readonly<Record<string, string>> = {}): voi
 }
 
 /** Makes `runGit` run `path` (a fake git script) instead. */
-export function useFakeGit(path: string): void {
+export function setFakeGit(path: string): void {
   setGitBinary({ found: true, path, version: "2.99.0" }, gitEnv(gitTestEnv()));
 }
 

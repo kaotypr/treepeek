@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { GitParseError } from "../../../../../src/core/git/errors";
 import { parseRawDiff } from "../../../../../src/core/git/parse/raw-diff";
-import { resetGitRuntime, useTestGit } from "../../../../support/core-git";
+import { resetGitRuntime, setTestGit } from "../../../../support/core-git";
 import { type Fixture, type FixtureRepo, fixture } from "../../../../support/git-fixture";
 import { git } from "./helpers";
 
@@ -17,7 +17,7 @@ let left: string;
 let right: string;
 
 beforeAll(() => {
-  useTestGit();
+  setTestGit();
   fx = fixture();
   app = fx.repo("app").commit({
     "modified.txt": "1\n",

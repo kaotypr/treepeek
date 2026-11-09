@@ -1,7 +1,7 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { observeSpawns } from "../../../../src/core/git/process";
 import { checkUserRef, MAX_USER_REF_LENGTH, resolveUserRef } from "../../../../src/core/git/refs";
-import { resetGitRuntime, useTestGit } from "../../../support/core-git";
+import { resetGitRuntime, setTestGit } from "../../../support/core-git";
 import {
   commitAll,
   gitIn,
@@ -24,8 +24,8 @@ beforeAll(() => {
   gitIn(repo, ["tag", "v1", first]);
   gitIn(repo, ["tag", "-a", "-m", "annotated", "v2", second]);
 });
-beforeAll(() => useTestGit());
-afterEach(() => useTestGit());
+beforeAll(() => setTestGit());
+afterEach(() => setTestGit());
 afterAll(() => {
   resetGitRuntime();
   removeTempRepos();
