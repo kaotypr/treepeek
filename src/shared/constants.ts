@@ -40,3 +40,15 @@ export const DIFF_LIMITS = Object.freeze({
 
 /** At most this many git processes run at once, across every session. */
 export const GIT_CONCURRENCY = 6;
+
+/** Time limit for one git call, unless the caller sets its own. */
+export const GIT_TIMEOUT_MS = 20_000;
+
+/** Time limit for each git call a scan makes. */
+export const GIT_SCAN_TIMEOUT_MS = 10_000;
+
+/**
+ * Bytes read from one git call's output, unless the caller sets its own (diffs use
+ * `DIFF_LIMITS`). Past it the process is killed and the call fails with `outputTooLarge`.
+ */
+export const GIT_MAX_OUTPUT_BYTES = 8 * MB;
