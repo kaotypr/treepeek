@@ -2,7 +2,7 @@
  * Builds `window.treepeek` from the IPC contract and exposes it, frozen, through the
  * context bridge. The renderer gets no `ipcRenderer`, no Node and no arbitrary channels.
  */
-import { contextBridge, type IpcRendererEvent, ipcRenderer } from "electron";
+import { contextBridge, type IpcRendererEvent, ipcRenderer, webUtils } from "electron";
 import * as v from "valibot";
 import {
   type CallMap,
@@ -94,6 +94,36 @@ async function callMain(channel: string, payload: unknown): Promise<Result<unkno
     return err("internal", `${channel} could not reach the main process`);
   }
 }
+
+// Folders dropped on a window. A page cannot read a dropped file's path, so the preload
+// does, and asks main to open it (main checks it is an existing folder).
+
+function carriesFiles(event: DragEvent): boolean {
+  return event.dataTransfer?.types.includes("Files") ?? false;
+}
+
+window.addEventListener(
+  "dragover",
+  (event) => {
+    if (!carriesFiles(event)) return;
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+  },
+  true,
+);
+
+window.addEventListener(
+  "drop",
+  (event) => {
+    if (!carriesFiles(event)) return;
+    event.preventDefault();
+    const file = event.dataTransfer?.files[0];
+    if (!file) return;
+    const path = webUtils.getPathForFile(file);
+    if (path) void callMain(mainCalls["folder.open"].name, { path });
+  },
+  true,
+);
 
 // Calls to the core service, over the MessagePort main hands this window
 
