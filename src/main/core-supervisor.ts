@@ -7,7 +7,8 @@ import {
 import * as v from "valibot";
 import type { GitState } from "../shared/domain/git";
 import { CONTRACT_VERSION, type CoreState, CoreToMainSchema, IPC_CHANNELS } from "../shared/ipc";
-import type { MainToCore } from "../shared/ipc/messages";
+import { MAX_PATH_LENGTH } from "../shared/ipc/domain-schemas";
+import { MAX_VALIDATE_PATHS, type MainToCore } from "../shared/ipc/messages";
 import type { Logger } from "../shared/log";
 
 export interface CoreSupervisorOptions {
@@ -25,6 +26,14 @@ export interface CoreSupervisorOptions {
   backoffMs?: readonly number[];
   /** How long the service must stay up before the backoff starts over. */
   stableAfterMs?: number;
+  /** How long `validatePaths` waits for the core service before answering "not in a scan". */
+  validateTimeoutMs?: number;
+}
+
+interface PendingValidation {
+  child: UtilityProcess;
+  count: number;
+  finish(valid: boolean[] | null): void;
 }
 
 interface Attached {
@@ -56,6 +65,8 @@ export class CoreSupervisor {
   #healthId = 0;
   #restartTimer: NodeJS.Timeout | null = null;
   #stableTimer: NodeJS.Timeout | null = null;
+  #validationId = 0;
+  readonly #validations = new Map<number, PendingValidation>();
 
   constructor(options: CoreSupervisorOptions) {
     this.#options = {
@@ -63,6 +74,7 @@ export class CoreSupervisor {
       healthTimeoutMs: 2_000,
       backoffMs: [1_000, 2_000, 5_000],
       stableAfterMs: 30_000,
+      validateTimeoutMs: 5_000,
       ...options,
     };
     this.#gitPathOverride = options.gitPathOverride ?? null;
@@ -106,6 +118,38 @@ export class CoreSupervisor {
     return () => this.#gitListeners.delete(listener);
   }
 
+  /**
+   * Asks the core service which `paths` lie in some window's scan (the path rule), for the
+   * "Open in…" checks. Resolves one boolean per path, in order. Every path counts as not in
+   * a scan when the service is not ready, restarts, does not answer in time, or the request
+   * is out of bounds (more than `MAX_VALIDATE_PATHS` paths, an empty or overlong path).
+   */
+  validatePaths(paths: readonly string[]): Promise<boolean[]> {
+    const none = () => paths.map(() => false);
+    const child = this.#child;
+    const inBounds =
+      paths.length <= MAX_VALIDATE_PATHS &&
+      paths.every((path) => path.length > 0 && path.length <= MAX_PATH_LENGTH);
+    if (!child || !this.#ready || paths.length === 0 || !inBounds) {
+      return Promise.resolve(none());
+    }
+    this.#validationId += 1;
+    const id = this.#validationId;
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        this.#options.log.warn("paths.validate timed out", { id });
+        finish(null);
+      }, this.#options.validateTimeoutMs);
+      const finish = (valid: boolean[] | null) => {
+        if (!this.#validations.delete(id)) return;
+        clearTimeout(timer);
+        resolve(valid ?? none());
+      };
+      this.#validations.set(id, { child, count: paths.length, finish });
+      child.postMessage({ type: "paths.validate", id, paths: [...paths] } satisfies MainToCore);
+    });
+  }
+
   start(): void {
     this.#stopping = false;
     this.#spawn();
@@ -114,6 +158,7 @@ export class CoreSupervisor {
   stop(): void {
     this.#stopping = true;
     this.#clearTimers();
+    this.#failValidations(null);
     const child = this.#child;
     this.#child = null;
     this.#ready = false;
@@ -206,10 +251,24 @@ export class CoreSupervisor {
         this.#options.log.info("git discovery", message.state);
         for (const listener of this.#gitListeners) listener(message.state);
         return;
+      case "paths.validate": {
+        const pending = this.#validations.get(message.id);
+        if (!pending || pending.child !== child) return;
+        pending.finish(message.valid.length === pending.count ? message.valid : null);
+        return;
+      }
+    }
+  }
+
+  /** Answers every pending `validatePaths` sent to `child` with "not in a scan". */
+  #failValidations(child: UtilityProcess | null): void {
+    for (const pending of [...this.#validations.values()]) {
+      if (child === null || pending.child === child) pending.finish(null);
     }
   }
 
   #onExit(child: UtilityProcess, code: number): void {
+    this.#failValidations(child);
     if (child !== this.#child) return;
     this.#child = null;
     this.#ready = false;
@@ -221,6 +280,7 @@ export class CoreSupervisor {
 
   #fail(child: UtilityProcess, reason: string): void {
     if (child !== this.#child) return;
+    this.#failValidations(child);
     this.#options.log.warn("restarting the core service", { reason });
     this.#child = null;
     this.#ready = false;
