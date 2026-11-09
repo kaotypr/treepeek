@@ -1,0 +1,53 @@
+# Unsigned arm64 development builds. Signing, notarization and release come later.
+# `bun run package` → dist/mac-arm64/Treepeek.app; `bun run package:dmg` → a DMG.
+
+# PLACEHOLDER: replace before the first signed build. The bundle id is permanent once
+# users have installed a signed release (it keys their settings, keychain and TCC grants).
+appId: dev.treepeek.app
+productName: Treepeek
+copyright: Copyright 2026 Adhitya Yosua Sanjaya Andaria
+
+directories:
+  output: dist
+  buildResources: build
+
+# Everything the app runs is bundled into out/; it has no runtime node_modules.
+files:
+  - out/**
+  - package.json
+  - "!**/*.map"
+
+asar: true
+asarUnpack:
+  - "**/*.node"
+
+npmRebuild: false
+
+mac:
+  target:
+    - target: dir
+      arch: arm64
+    - target: dmg
+      arch: arm64
+  category: public.app-category.developer-tools
+  # From Electron 45's own bundle (LSMinimumSystemVersion) and its breaking changes:
+  # Electron 44 and later need macOS 13 (Ventura). See docs/platform-notes.md.
+  minimumSystemVersion: "13.0"
+  # Unsigned: no Developer ID yet (decision log, "Signing account").
+  identity: null
+  hardenedRuntime: false
+  gatekeeperAssess: false
+
+dmg:
+  artifactName: ${productName}-${version}-${arch}.${ext}
+
+# Fuses from the architecture design's security boundary.
+electronFuses:
+  runAsNode: false
+  enableNodeOptionsEnvironmentVariable: false
+  enableNodeCliInspectArguments: false
+  enableEmbeddedAsarIntegrityValidation: true
+  onlyLoadAppFromAsar: true
+  # Flipping fuses rewrites the binary. With signing skipped, re-apply the ad-hoc signature
+  # Apple Silicon needs before it will launch anything.
+  resetAdHocDarwinSignature: true

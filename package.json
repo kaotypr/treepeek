@@ -24,7 +24,6 @@
     "electron"
   ],
   "devDependencies": {
-    "@axe-core/playwright": "4.14.0",
     "@base-ui/react": "1.9.0",
     "@biomejs/biome": "2.6.6",
     "@electron/fuses": "2.1.3",

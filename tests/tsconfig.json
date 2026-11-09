@@ -6,6 +6,16 @@
     "lib": ["es2024", "dom"],
     "types": ["node"]
   },
-  "include": ["**/*.ts"],
-  "references": [{ "path": "../src/shared" }, { "path": "../src/main" }, { "path": "../src/core" }]
+  "include": ["**/*.ts", "../src/preload/types.d.ts"],
+  "references": [
+    {
+      "path": "../src/shared"
+    },
+    {
+      "path": "../src/main"
+    },
+    {
+      "path": "../src/core"
+    }
+  ]
 }
