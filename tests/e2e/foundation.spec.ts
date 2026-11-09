@@ -104,7 +104,7 @@ test.describe(`foundation (${target})`, () => {
     expect(shape.main).toEqual(["app", "settings"]);
     expect(shape.mainApp).toEqual(["ping"]);
     expect(shape.mainSettings).toEqual(["get", "set"]);
-    expect(shape.core).toEqual(["app", "request"]);
+    expect(shape.core).toEqual(["app", "request", "scan", "session", "start"]);
     expect(shape.coreApp).toEqual(["info", "ping"]);
     expect(shape.coreRequest).toEqual(["cancel"]);
     expect(shape.unchanged).toBe(true);
