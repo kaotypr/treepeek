@@ -82,6 +82,81 @@ test.describe(`scan (${target})`, () => {
     expect(listed.value.commits).toBe(1);
   });
 
+  test("sends a file's diff over the port", async () => {
+    const diffed = await app.page.evaluate(
+      (checkoutPath) =>
+        window.treepeek.core.diff.file({
+          requestId: "e2e-diff",
+          checkoutPath,
+          comparison: { kind: "review" },
+          path: "notes.txt",
+        }),
+      fx.path("app-feature"),
+    );
+    expect(diffed).toMatchObject({
+      ok: true,
+      value: {
+        path: "notes.txt",
+        status: "untracked",
+        binary: false,
+        left: "",
+        right: "uncommitted\n",
+        stats: { added: 1, removed: 0 },
+        limits: { patchTruncated: false, contentOmitted: false, highlightOff: false },
+      },
+    });
+    if (!diffed.ok) return;
+    expect(diffed.value.hunks).toEqual([
+      {
+        oldStart: 0,
+        oldLines: 0,
+        newStart: 1,
+        newLines: 1,
+        header: "@@ -0,0 +1 @@",
+        lines: [{ kind: "add", text: "uncommitted", oldNo: null, newNo: 1 }],
+      },
+    ]);
+    const committed = await app.page.evaluate(
+      (checkoutPath) =>
+        window.treepeek.core.diff.file({
+          requestId: "e2e-diff-2",
+          checkoutPath,
+          comparison: { kind: "worktree" },
+          path: "feature.txt",
+        }),
+      fx.path("app-feature"),
+    );
+    expect(committed).toMatchObject({
+      ok: true,
+      value: { path: "feature.txt", status: "added", left: "", right: "f\n" },
+    });
+  });
+
+  test("refuses a diff for a path outside the scan or the checkout", async () => {
+    const refused = await app.page.evaluate(
+      ({ outside, checkout }) =>
+        Promise.all([
+          window.treepeek.core.diff.file({
+            requestId: "e2e-diff-outside",
+            checkoutPath: outside,
+            comparison: { kind: "review" },
+            path: "secret.txt",
+          }),
+          window.treepeek.core.diff.file({
+            requestId: "e2e-diff-up",
+            checkoutPath: checkout,
+            comparison: { kind: "review" },
+            path: "../app/README.md",
+          }),
+        ]),
+      { outside: fx.outside, checkout: fx.path("app-feature") },
+    );
+    expect(refused).toMatchObject([
+      { ok: false, error: { code: "notInScan" } },
+      { ok: false, error: { code: "notInScan" } },
+    ]);
+  });
+
   test("refuses a comparison for a path outside the scan", async () => {
     const refused = await app.page.evaluate(
       (checkoutPath) => window.treepeek.core.comparison.list({ checkoutPath, kind: "working" }),
