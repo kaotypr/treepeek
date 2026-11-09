@@ -1,0 +1,20 @@
+/*
+ * `@pierre/diffs` reads these override variables from its host element, so diff
+ * backgrounds come from the app's color tokens (and follow the `.dark` class and
+ * "Increase contrast") while syntax colors stay with the pierre-light/pierre-dark themes.
+ */
+diffs-container {
+  display: block;
+  --diffs-bg-context-override: var(--card);
+  --diffs-bg-buffer-override: var(--card);
+  --diffs-bg-context-gutter-override: var(--card);
+  --diffs-bg-addition-override: var(--diff-added);
+  --diffs-bg-addition-number-override: var(--diff-added);
+  --diffs-bg-deletion-override: var(--diff-removed);
+  --diffs-bg-deletion-number-override: var(--diff-removed);
+  --diffs-bg-separator-override: var(--diff-collapsed);
+  --diffs-fg-number-override: var(--muted-foreground);
+  --diffs-addition-color-override: var(--diff-added-foreground);
+  --diffs-deletion-color-override: var(--diff-removed-foreground);
+  --diffs-font-family: ui-monospace, "SF Mono", Menlo, monospace;
+}
