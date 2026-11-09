@@ -1,0 +1,190 @@
+{
+  "path": "src/checksum.ts",
+  "status": "modified",
+  "binary": false,
+  "hunks": [
+    {
+      "oldStart": 9,
+      "oldLines": 7,
+      "newStart": 9,
+      "newLines": 7,
+      "header": "@@ -9,7 +9,7 @@ export function step0(input: number): number {",
+      "lines": [
+        {
+          "kind": "context",
+          "text": "",
+          "oldNo": 9,
+          "newNo": 9
+        },
+        {
+          "kind": "context",
+          "text": "/** Returns the 1th checksum step. */",
+          "oldNo": 10,
+          "newNo": 10
+        },
+        {
+          "kind": "context",
+          "text": "export function step1(input: number): number {",
+          "oldNo": 11,
+          "newNo": 11
+        },
+        {
+          "kind": "remove",
+          "text": "  const value = (input * 4) % 65_521;",
+          "oldNo": 12,
+          "newNo": null
+        },
+        {
+          "kind": "add",
+          "text": "  const value = (input * 5 + 1) % 65_521;",
+          "oldNo": null,
+          "newNo": 12
+        },
+        {
+          "kind": "context",
+          "text": "  assert(value >= 0, \"step 1 went negative\");",
+          "oldNo": 13,
+          "newNo": 13
+        },
+        {
+          "kind": "context",
+          "text": "  return value;",
+          "oldNo": 14,
+          "newNo": 14
+        },
+        {
+          "kind": "context",
+          "text": "}",
+          "oldNo": 15,
+          "newNo": 15
+        }
+      ]
+    },
+    {
+      "oldStart": 29,
+      "oldLines": 7,
+      "newStart": 29,
+      "newLines": 7,
+      "header": "@@ -29,7 +29,7 @@ export function step3(input: number): number {",
+      "lines": [
+        {
+          "kind": "context",
+          "text": "}",
+          "oldNo": 29,
+          "newNo": 29
+        },
+        {
+          "kind": "context",
+          "text": "",
+          "oldNo": 30,
+          "newNo": 30
+        },
+        {
+          "kind": "context",
+          "text": "/** Returns the 4th checksum step. */",
+          "oldNo": 31,
+          "newNo": 31
+        },
+        {
+          "kind": "remove",
+          "text": "export function step4(input: number): number {",
+          "oldNo": 32,
+          "newNo": null
+        },
+        {
+          "kind": "add",
+          "text": "export async function step4(input: number): number {",
+          "oldNo": null,
+          "newNo": 32
+        },
+        {
+          "kind": "context",
+          "text": "  const value = (input * 7) % 65_521;",
+          "oldNo": 33,
+          "newNo": 33
+        },
+        {
+          "kind": "context",
+          "text": "  assert(value >= 0, \"step 4 went negative\");",
+          "oldNo": 34,
+          "newNo": 34
+        },
+        {
+          "kind": "context",
+          "text": "  return value;",
+          "oldNo": 35,
+          "newNo": 35
+        }
+      ]
+    },
+    {
+      "oldStart": 51,
+      "oldLines": 7,
+      "newStart": 51,
+      "newLines": 7,
+      "header": "@@ -51,7 +51,7 @@ export function step6(input: number): number {",
+      "lines": [
+        {
+          "kind": "context",
+          "text": "",
+          "oldNo": 51,
+          "newNo": 51
+        },
+        {
+          "kind": "context",
+          "text": "/** Returns the 7th checksum step. */",
+          "oldNo": 52,
+          "newNo": 52
+        },
+        {
+          "kind": "context",
+          "text": "export function step7(input: number): number {",
+          "oldNo": 53,
+          "newNo": 53
+        },
+        {
+          "kind": "remove",
+          "text": "  const value = (input * 10) % 65_521;",
+          "oldNo": 54,
+          "newNo": null
+        },
+        {
+          "kind": "add",
+          "text": "  const value = Math.abs(input * 10) % 65_521;",
+          "oldNo": null,
+          "newNo": 54
+        },
+        {
+          "kind": "context",
+          "text": "  assert(value >= 0, \"step 7 went negative\");",
+          "oldNo": 55,
+          "newNo": 55
+        },
+        {
+          "kind": "context",
+          "text": "  return value;",
+          "oldNo": 56,
+          "newNo": 56
+        },
+        {
+          "kind": "context",
+          "text": "}",
+          "oldNo": 57,
+          "newNo": 57
+        }
+      ]
+    }
+  ],
+  "left": "import { strict as assert } from \"node:assert\";\n\n/** Returns the 0th checksum step. */\nexport function step0(input: number): number {\n  const value = (input * 3) % 65_521;\n  assert(value >= 0, \"step 0 went negative\");\n  return value;\n}\n\n/** Returns the 1th checksum step. */\nexport function step1(input: number): number {\n  const value = (input * 4) % 65_521;\n  assert(value >= 0, \"step 1 went negative\");\n  return value;\n}\n\n/** Returns the 2th checksum step. */\nexport function step2(input: number): number {\n  const value = (input * 5) % 65_521;\n  assert(value >= 0, \"step 2 went negative\");\n  return value;\n}\n\n/** Returns the 3th checksum step. */\nexport function step3(input: number): number {\n  const value = (input * 6) % 65_521;\n  assert(value >= 0, \"step 3 went negative\");\n  return value;\n}\n\n/** Returns the 4th checksum step. */\nexport function step4(input: number): number {\n  const value = (input * 7) % 65_521;\n  assert(value >= 0, \"step 4 went negative\");\n  return value;\n}\n\n/** Returns the 5th checksum step. */\nexport function step5(input: number): number {\n  const value = (input * 8) % 65_521;\n  assert(value >= 0, \"step 5 went negative\");\n  return value;\n}\n\n/** Returns the 6th checksum step. */\nexport function step6(input: number): number {\n  const value = (input * 9) % 65_521;\n  assert(value >= 0, \"step 6 went negative\");\n  return value;\n}\n\n/** Returns the 7th checksum step. */\nexport function step7(input: number): number {\n  const value = (input * 10) % 65_521;\n  assert(value >= 0, \"step 7 went negative\");\n  return value;\n}\n\n/** Returns the 8th checksum step. */\nexport function step8(input: number): number {\n  const value = (input * 11) % 65_521;\n  assert(value >= 0, \"step 8 went negative\");\n  return value;\n}\n\n",
+  "right": "import { strict as assert } from \"node:assert\";\n\n/** Returns the 0th checksum step. */\nexport function step0(input: number): number {\n  const value = (input * 3) % 65_521;\n  assert(value >= 0, \"step 0 went negative\");\n  return value;\n}\n\n/** Returns the 1th checksum step. */\nexport function step1(input: number): number {\n  const value = (input * 5 + 1) % 65_521;\n  assert(value >= 0, \"step 1 went negative\");\n  return value;\n}\n\n/** Returns the 2th checksum step. */\nexport function step2(input: number): number {\n  const value = (input * 5) % 65_521;\n  assert(value >= 0, \"step 2 went negative\");\n  return value;\n}\n\n/** Returns the 3th checksum step. */\nexport function step3(input: number): number {\n  const value = (input * 6) % 65_521;\n  assert(value >= 0, \"step 3 went negative\");\n  return value;\n}\n\n/** Returns the 4th checksum step. */\nexport async function step4(input: number): number {\n  const value = (input * 7) % 65_521;\n  assert(value >= 0, \"step 4 went negative\");\n  return value;\n}\n\n/** Returns the 5th checksum step. */\nexport function step5(input: number): number {\n  const value = (input * 8) % 65_521;\n  assert(value >= 0, \"step 5 went negative\");\n  return value;\n}\n\n/** Returns the 6th checksum step. */\nexport function step6(input: number): number {\n  const value = (input * 9) % 65_521;\n  assert(value >= 0, \"step 6 went negative\");\n  return value;\n}\n\n/** Returns the 7th checksum step. */\nexport function step7(input: number): number {\n  const value = Math.abs(input * 10) % 65_521;\n  assert(value >= 0, \"step 7 went negative\");\n  return value;\n}\n\n/** Returns the 8th checksum step. */\nexport function step8(input: number): number {\n  const value = (input * 11) % 65_521;\n  assert(value >= 0, \"step 8 went negative\");\n  return value;\n}\n\n",
+  "stats": {
+    "added": 3,
+    "removed": 3
+  },
+  "limits": {
+    "patchTruncated": false,
+    "contentOmitted": false,
+    "highlightOff": false
+  },
+  "resultHash": "16a243729f0258ec8f4f167ac4f2e0c09d7c8b28"
+}

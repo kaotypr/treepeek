@@ -1,0 +1,18 @@
+{
+  "path": "scripts/run.sh",
+  "status": "modified",
+  "binary": false,
+  "hunks": [],
+  "left": "#!/bin/sh\necho \"run\"\n",
+  "right": "#!/bin/sh\necho \"run\"\n",
+  "stats": {
+    "added": 0,
+    "removed": 0
+  },
+  "limits": {
+    "patchTruncated": false,
+    "contentOmitted": false,
+    "highlightOff": false
+  },
+  "resultHash": "743ef7307579910a296288bd9924eab11a54a05a"
+}

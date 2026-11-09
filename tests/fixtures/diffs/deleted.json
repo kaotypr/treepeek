@@ -1,0 +1,64 @@
+{
+  "path": "tools/legacy_sum.py",
+  "status": "deleted",
+  "binary": false,
+  "hunks": [
+    {
+      "oldStart": 1,
+      "oldLines": 6,
+      "newStart": 0,
+      "newLines": 0,
+      "header": "@@ -1,6 +0,0 @@",
+      "lines": [
+        {
+          "kind": "remove",
+          "text": "def legacy_sum(values):",
+          "oldNo": 1,
+          "newNo": null
+        },
+        {
+          "kind": "remove",
+          "text": "    \"\"\"Kept for the old importer; nothing calls it now.\"\"\"",
+          "oldNo": 2,
+          "newNo": null
+        },
+        {
+          "kind": "remove",
+          "text": "    total = 0",
+          "oldNo": 3,
+          "newNo": null
+        },
+        {
+          "kind": "remove",
+          "text": "    for value in values:",
+          "oldNo": 4,
+          "newNo": null
+        },
+        {
+          "kind": "remove",
+          "text": "        total += value",
+          "oldNo": 5,
+          "newNo": null
+        },
+        {
+          "kind": "remove",
+          "text": "    return total",
+          "oldNo": 6,
+          "newNo": null
+        }
+      ]
+    }
+  ],
+  "left": "def legacy_sum(values):\n    \"\"\"Kept for the old importer; nothing calls it now.\"\"\"\n    total = 0\n    for value in values:\n        total += value\n    return total\n",
+  "right": "",
+  "stats": {
+    "added": 0,
+    "removed": 6
+  },
+  "limits": {
+    "patchTruncated": false,
+    "contentOmitted": false,
+    "highlightOff": false
+  },
+  "resultHash": "deleted:458df5166f12b97a6d3d746c65970fc9bf62b9c3"
+}

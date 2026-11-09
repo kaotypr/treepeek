@@ -6,7 +6,7 @@
     "lib": ["es2024", "dom"],
     "types": ["node"]
   },
-  "include": ["**/*.ts", "../src/preload/types.d.ts"],
+  "include": ["**/*.ts", "../scripts/**/*.ts", "../src/preload/types.d.ts"],
   "references": [
     {
       "path": "../src/shared"
