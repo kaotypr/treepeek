@@ -197,14 +197,7 @@ function start(): void {
     return ok({});
   });
 
-  settings.onChange((next, previous) => {
-    if (next.appearance !== previous.appearance) applyAppearance(next.appearance);
-    if (next.gitPath !== previous.gitPath) supervisor.setGitPathOverride(next.gitPath);
-    // Every settings write parses a fresh list, so compare contents, not identity.
-    if (next.recentFolders.join("\0") !== previous.recentFolders.join("\0")) refreshMenu();
-  });
-
-  onThemeChanged((state) => {
+  const broadcastTheme = (state: ReturnType<typeof themeState>) => {
     for (const win of windows.all()) {
       const had = vibrancy.get(win);
       if (had !== undefined && had !== wantsVibrancy()) {
@@ -216,6 +209,19 @@ function start(): void {
       win.setBackgroundColor(vibrancy.get(win) ? "#00000000" : WINDOW_BACKGROUND[state.resolved]);
       emitToWindow(win, mainEvents["theme.changed"], state, log);
     }
+  };
+  onThemeChanged(broadcastTheme);
+
+  settings.onChange((next, previous) => {
+    if (next.appearance !== previous.appearance) {
+      applyAppearance(next.appearance);
+      // macOS reports nothing when the resolved theme stays the same (Dark → System on a
+      // dark Mac), yet every window must learn the new setting.
+      broadcastTheme(themeState());
+    }
+    if (next.gitPath !== previous.gitPath) supervisor.setGitPathOverride(next.gitPath);
+    // Every settings write parses a fresh list, so compare contents, not identity.
+    if (next.recentFolders.join("\0") !== previous.recentFolders.join("\0")) refreshMenu();
   });
 
   supervisor.onState((state) => {
