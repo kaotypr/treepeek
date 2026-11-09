@@ -67,12 +67,12 @@ test.describe(`browse (${target})`, () => {
     await page.keyboard.press("Meta+Shift+T");
     const tree = page.getByTestId("folder-tree");
     await expect(tree).toBeVisible();
-    await expect(tree.getByRole("treeitem", { name: /^group, 1 checkout$/ })).toBeVisible();
+    await expect(tree.getByRole("treeitem", { name: /^group\s*, 1 checkout$/ })).toBeVisible();
     await expect(
       tree.getByRole("treeitem", { name: /scanned folder|treepeek-fixture/ }).first(),
     ).toContainText("4 checkouts");
     // Expanding the folder shows its checkout; every checkout is then a tree leaf.
-    await tree.getByRole("treeitem", { name: /^group, / }).click();
+    await tree.getByRole("treeitem", { name: /^group\s*, / }).click();
     const leaves = await tree
       .locator("[role=treeitem][data-checkout-path]")
       .evaluateAll((rows) => rows.map((row) => row.getAttribute("data-checkout-path")));
@@ -207,7 +207,10 @@ test.describe(`browse a large folder (${target})`, () => {
         const marks = { rowsAtDone: -1, checkoutEvents: 0 };
         (window as unknown as { __marks: typeof marks }).__marks = marks;
         const subscribe = () => {
-          if (!("treepeek" in window)) return setTimeout(subscribe, 0);
+          if (!("treepeek" in window)) {
+            setTimeout(subscribe, 0);
+            return;
+          }
           window.treepeek.on("scan.checkout", () => {
             marks.checkoutEvents += 1;
           });

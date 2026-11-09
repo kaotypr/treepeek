@@ -36,12 +36,17 @@ export async function listedFiles(page: Page): Promise<string[]> {
   );
 }
 
+/**
+ * Clicks the file's row. The list is virtualized, so a row far down is not rendered: the
+ * filter brings it up first, and is cleared again once the file is selected.
+ */
 export async function selectFile(page: Page, path: string): Promise<void> {
-  await page
-    .getByTestId("file-list")
-    .locator(`[role="option"][data-path="${path}"]`)
-    .first()
-    .click();
+  const row = page.getByTestId("file-list").locator(`[role="option"][data-path="${path}"]`).first();
+  const filter = page.getByTestId("file-filter");
+  const filtered = (await row.count()) === 0;
+  if (filtered) await filter.fill(path);
+  await row.click();
+  if (filtered) await filter.fill("");
   await expect(page.getByTestId("preview-title")).toContainText(path);
 }
 
