@@ -30,7 +30,14 @@ export function ScanWindow({ scanRoot }: { scanRoot: string }) {
   const streamRef = useRef<ScanStream | null>(null);
 
   useEffect(() => {
-    const stream = startScan(queryClient, scanRoot, { onSettled: keepSelection });
+    const stream = startScan(queryClient, scanRoot, {
+      onSettled: (scan) => {
+        keepSelection(scan);
+        // File lists are fetched again once the scan that may have changed them is done,
+        // and only then: a restarted core service knows a checkout only once it is scanned.
+        if (scan.phase === "done") void queryClient.invalidateQueries({ queryKey: ["comparison"] });
+      },
+    });
     streamRef.current = stream;
     return () => {
       stream.stop();
@@ -39,10 +46,8 @@ export function ScanWindow({ scanRoot }: { scanRoot: string }) {
   }, [queryClient, scanRoot]);
 
   const rescan = useCallback(async () => {
-    // Lists are fetched again as the scan runs; the core keeps the last scan meanwhile.
-    void queryClient.invalidateQueries({ queryKey: ["comparison"] });
     await streamRef.current?.rescan();
-  }, [queryClient]);
+  }, []);
 
   const context = useMemo<ScanContextValue>(() => ({ scanRoot, rescan }), [scanRoot, rescan]);
 
