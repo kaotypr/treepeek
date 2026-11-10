@@ -319,6 +319,22 @@ describe("review status and marks", () => {
     expect((await status(client, feature)).files).toEqual(before.files);
   });
 
+  it("applies marks for one checkout in the order they were sent", async () => {
+    const fx = newFixture();
+    const app = fx.repo("app").commit({ "a.txt": "a\n" });
+    const feature = app.worktree("feature", { from: "main" });
+    feature.write({ "a.txt": "a1\n", "b.txt": "b\n", "c.txt": "c\n" });
+    const { client } = await open(fx.root);
+    // Sent at once: "Unmark all" must not overtake "Mark all" still keeping snapshots.
+    const [all, none] = await Promise.all([
+      client.call("review.markAll", { checkoutPath: feature.path, viewed: true }),
+      client.call("review.markAll", { checkoutPath: feature.path, viewed: false }),
+    ]);
+    expect(all.ok && none.ok).toBe(true);
+    expect((await status(client, feature)).viewed).toBe(0);
+    expect(stored.store.getMarks((await status(client, feature)).worktreeId)).toEqual([]);
+  });
+
   it("refuses versions to restore that do not go one per viewed path", async () => {
     const fx = newFixture();
     const app = fx.repo("app").commit({ "a.txt": "a\n" });

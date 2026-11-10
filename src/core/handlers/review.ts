@@ -3,6 +3,7 @@ import { coreCalls, err, ok } from "../../shared/ipc";
 import { isIpcError } from "../compare/kinds";
 import { announceMarks, reviewContext, scheduleStatusForScan } from "../review/background";
 import { markAll, markFiles } from "../review/mark";
+import { serialized } from "../review/serial";
 import { computeStatus } from "../review/status";
 import type { Session, SessionServices } from "../sessions/session";
 import { failWith } from "./errors";
@@ -39,49 +40,57 @@ export function registerReviewHandlers(session: Session, services: SessionServic
     }
   });
 
-  rpc.onCall(coreCalls["review.mark"], async (_ctx, request, signal) => {
-    const scanned = await session.findCheckout(request.checkoutPath);
-    if (!scanned) return err("notInScan", NOT_IN_SCAN);
-    const store = services.store();
-    if (!store) return err("internal", NO_STORE);
-    try {
-      const status = await markFiles(reviewContext(session, scanned, store, signal), {
-        paths: request.paths,
-        viewed: request.viewed,
-        ...(request.resultHashes === undefined ? {} : { resultHashes: request.resultHashes }),
-      });
-      if (isIpcError(status)) return err(status.code, status.message, status.detail);
-      session.log.info("review marks changed", {
-        checkoutPath: scanned.checkout.path,
-        files: request.paths.length,
-        viewed: request.viewed,
-        restored: request.resultHashes !== undefined,
-      });
-      announceMarks(services, session, scanned.checkout.path);
-      return ok(status);
-    } catch (error) {
-      return failWith(error);
-    }
-  });
+  // Marks of one checkout change in the order the calls arrived (`serialized`).
+  rpc.onCall(coreCalls["review.mark"], (_ctx, request, signal) =>
+    serialized(`marks:${request.checkoutPath}`, async () => {
+      const scanned = await session.findCheckout(request.checkoutPath);
+      if (!scanned) return err("notInScan", NOT_IN_SCAN);
+      const store = services.store();
+      if (!store) return err("internal", NO_STORE);
+      try {
+        const status = await markFiles(reviewContext(session, scanned, store, signal), {
+          paths: request.paths,
+          viewed: request.viewed,
+          ...(request.resultHashes === undefined ? {} : { resultHashes: request.resultHashes }),
+        });
+        if (isIpcError(status)) return err(status.code, status.message, status.detail);
+        session.log.info("review marks changed", {
+          checkoutPath: scanned.checkout.path,
+          files: request.paths.length,
+          viewed: request.viewed,
+          restored: request.resultHashes !== undefined,
+        });
+        announceMarks(services, session, scanned.checkout.path);
+        return ok(status);
+      } catch (error) {
+        return failWith(error);
+      }
+    }),
+  );
 
-  rpc.onCall(coreCalls["review.markAll"], async (_ctx, request, signal) => {
-    const scanned = await session.findCheckout(request.checkoutPath);
-    if (!scanned) return err("notInScan", NOT_IN_SCAN);
-    const store = services.store();
-    if (!store) return err("internal", NO_STORE);
-    try {
-      const result = await markAll(reviewContext(session, scanned, store, signal), request.viewed);
-      if (isIpcError(result)) return err(result.code, result.message, result.detail);
-      session.log.info(request.viewed ? "marked all as reviewed" : "unmarked all", {
-        checkoutPath: scanned.checkout.path,
-        changed: result.previous.length,
-      });
-      announceMarks(services, session, scanned.checkout.path);
-      return ok(result);
-    } catch (error) {
-      return failWith(error);
-    }
-  });
+  rpc.onCall(coreCalls["review.markAll"], (_ctx, request, signal) =>
+    serialized(`marks:${request.checkoutPath}`, async () => {
+      const scanned = await session.findCheckout(request.checkoutPath);
+      if (!scanned) return err("notInScan", NOT_IN_SCAN);
+      const store = services.store();
+      if (!store) return err("internal", NO_STORE);
+      try {
+        const result = await markAll(
+          reviewContext(session, scanned, store, signal),
+          request.viewed,
+        );
+        if (isIpcError(result)) return err(result.code, result.message, result.detail);
+        session.log.info(request.viewed ? "marked all as reviewed" : "unmarked all", {
+          checkoutPath: scanned.checkout.path,
+          changed: result.previous.length,
+        });
+        announceMarks(services, session, scanned.checkout.path);
+        return ok(result);
+      } catch (error) {
+        return failWith(error);
+      }
+    }),
+  );
 
   rpc.onCall(coreCalls["review.storeUsage"], () => {
     const store = services.store();
