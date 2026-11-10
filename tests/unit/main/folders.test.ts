@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// `folders.ts` imports Electron's dialog; nothing here opens one.
+// Nothing here opens a native dialog; the opener is handed a fake one.
 vi.mock("electron", () => ({ dialog: {} }));
 
 const { FolderOpener, PendingFolders, RecentFolders, resolveFolder } = await import(
@@ -68,13 +68,14 @@ describe("RecentFolders", () => {
 });
 
 describe("FolderOpener", () => {
-  function setup() {
+  function setup(answer: string | null = null) {
     const settings = new SettingsStore(settingsDir);
     const recent = new RecentFolders(settings);
     const opened: string[] = [];
     const opener = new FolderOpener({
       recent,
       log,
+      dialog: async () => answer,
       openScanWindow: (scanRoot) => {
         opened.push(scanRoot);
         return {} as Electron.BrowserWindow;
@@ -112,6 +113,17 @@ describe("FolderOpener", () => {
     expect(await opener.openRecent(join(dir, "gone"))).toBeNull();
     expect(opened).toEqual([join(dir, "work")]);
     expect(recent.list()).toEqual([join(dir, "work")]);
+  });
+
+  it("opens the folder the dialog answers, and nothing when it is cancelled", async () => {
+    mkdirSync(join(dir, "picked"));
+    const picked = setup(join(dir, "picked"));
+    expect(await picked.opener.choose(null)).toBe(realpathSync(join(dir, "picked")));
+    expect(picked.opened).toEqual([realpathSync(join(dir, "picked"))]);
+
+    const cancelled = setup(null);
+    expect(await cancelled.opener.choose(null)).toBeNull();
+    expect(cancelled.opened).toEqual([]);
   });
 });
 

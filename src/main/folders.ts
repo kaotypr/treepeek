@@ -1,8 +1,9 @@
 import { realpath, stat } from "node:fs/promises";
 import { isAbsolute } from "node:path";
-import { type BrowserWindow, dialog } from "electron";
+import type { BrowserWindow } from "electron";
 import type { Logger } from "../shared/log";
 import { MAX_RECENT_FOLDERS } from "../shared/settings";
+import type { OpenDialog } from "./dialogs";
 import type { SettingsStore } from "./settings";
 
 /**
@@ -62,6 +63,8 @@ export interface FolderOpenerOptions {
   recent: RecentFolders;
   /** Opens a scan window for a real folder path, or focuses the one showing it. */
   openScanWindow: (scanRoot: string) => BrowserWindow;
+  /** The folder dialog (`dialogs.ts`). */
+  dialog: OpenDialog;
   log: Logger;
 }
 
@@ -103,12 +106,8 @@ export class FolderOpener {
       buttonLabel: "Open",
       properties: ["openDirectory"],
     };
-    const result =
-      parent && !parent.isDestroyed()
-        ? await dialog.showOpenDialog(parent, options)
-        : await dialog.showOpenDialog(options);
-    const chosen = result.canceled ? undefined : result.filePaths[0];
-    if (chosen === undefined) return null;
+    const chosen = await this.#options.dialog(parent, options);
+    if (chosen === null) return null;
     const opened = await this.open(chosen);
     return opened === null ? null : await resolveFolder(chosen);
   }
