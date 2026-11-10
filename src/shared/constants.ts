@@ -52,3 +52,13 @@ export const GIT_SCAN_TIMEOUT_MS = 10_000;
  * `DIFF_LIMITS`). Past it the process is killed and the call fails with `outputTooLarge`.
  */
 export const GIT_MAX_OUTPUT_BYTES = 8 * MB;
+
+/** Review marks (review-marks design): snapshots, the store's cap, and pruning. */
+export const REVIEW_LIMITS = Object.freeze({
+  /** A working-tree file is snapshotted on mark when it is at most this large and not binary. */
+  snapshotBytes: 1 * MB,
+  /** The snapshot store's cap; past it the oldest snapshots are pruned. */
+  storeCapBytes: 500 * MB,
+  /** A stored worktree Git no longer lists is forgotten after this many days unseen. */
+  pruneAfterDays: 30,
+});

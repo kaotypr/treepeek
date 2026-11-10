@@ -133,6 +133,164 @@ describe.each(engines)("ReviewStore (%s engine)", (engine) => {
     });
   });
 
+  describe("marks", () => {
+    const H1 = "a".repeat(40);
+    const H2 = "b".repeat(40);
+    const mark = (path: string, resultHash = H1, viewedAt = "2025-07-01T00:00:00Z") => ({
+      path,
+      resultHash,
+      viewedAt,
+      snapshotHash: null,
+    });
+
+    it("sets, replaces and deletes marks, one per path", () => {
+      store.upsertWorktree(row());
+      const id = row().worktreeId;
+      expect(store.getMarks(id)).toEqual([]);
+      store.setMarks(id, [mark("b.txt"), mark("a.txt")]);
+      expect(store.getMarks(id).map((entry) => entry.path)).toEqual(["a.txt", "b.txt"]);
+      store.setMarks(id, [mark("a.txt", H2, "2025-07-02T00:00:00Z")]);
+      expect(store.getMarks(id)[0]).toEqual({
+        worktreeId: id,
+        ...mark("a.txt", H2, "2025-07-02T00:00:00Z"),
+      });
+      store.deleteMarks(id, ["a.txt", "missing.txt"]);
+      expect(store.getMarks(id).map((entry) => entry.path)).toEqual(["b.txt"]);
+      store.deleteMarks(id);
+      expect(store.getMarks(id)).toEqual([]);
+    });
+
+    it("keeps each identity's marks apart and across a reopen", () => {
+      store.upsertWorktree(row());
+      store.upsertWorktree(row({ startCommit: S2 }));
+      store.setMarks(row().worktreeId, [mark("a.txt")]);
+      store.setMarks(row({ startCommit: S2 }).worktreeId, [mark("b.txt")]);
+      store.close();
+      store = open();
+      expect(store.getMarks(row().worktreeId).map((entry) => entry.path)).toEqual(["a.txt"]);
+      expect(
+        store.getMarks(row({ startCommit: S2 }).worktreeId).map((entry) => entry.path),
+      ).toEqual(["b.txt"]);
+    });
+
+    it("refuses marks for an identity never recorded", () => {
+      expect(() => store.setMarks("never-seen", [mark("a.txt")])).toThrow(/No worktree/);
+    });
+  });
+
+  describe("snapshots", () => {
+    const H1 = "1".repeat(40);
+    const H2 = "2".repeat(40);
+    const H3 = "3".repeat(40);
+    const bytes = (size: number, fill = 0x61) => new Uint8Array(size).fill(fill);
+
+    it("keeps one file per name and reports what it holds", () => {
+      store.putSnapshot(H1, bytes(10));
+      store.putSnapshot(H1, bytes(10));
+      store.putSnapshot(H2, bytes(5));
+      expect(store.snapshotUsage()).toEqual({ count: 2, bytes: 15 });
+      expect(store.getSnapshot(H1)?.length).toBe(10);
+      expect(store.getSnapshot(H3)).toBeNull();
+      expect(() => store.putSnapshot("../escape", bytes(1))).toThrow(/cannot name a snapshot/);
+    });
+
+    it("deletes only the snapshots no mark references", () => {
+      store.upsertWorktree(row());
+      store.putSnapshot(H1, bytes(10));
+      store.putSnapshot(H2, bytes(10));
+      store.setMarks(row().worktreeId, [
+        { path: "a.txt", resultHash: H1, viewedAt: "2025-07-01T00:00:00Z", snapshotHash: H1 },
+      ]);
+      expect(store.deleteUnreferencedSnapshots()).toBe(1);
+      expect(store.getSnapshot(H1)).not.toBeNull();
+      expect(store.getSnapshot(H2)).toBeNull();
+    });
+
+    it("over the cap, drops unreferenced snapshots first, then the oldest marks'", () => {
+      store.upsertWorktree(row());
+      const id = row().worktreeId;
+      store.putSnapshot(H1, bytes(100));
+      store.putSnapshot(H2, bytes(100));
+      store.putSnapshot(H3, bytes(100));
+      store.setMarks(id, [
+        { path: "old.txt", resultHash: H1, viewedAt: "2025-07-01T00:00:00Z", snapshotHash: H1 },
+        { path: "new.txt", resultHash: H2, viewedAt: "2025-07-05T00:00:00Z", snapshotHash: H2 },
+      ]);
+      expect(store.pruneSnapshots(1000)).toBe(0);
+      // Unreferenced H3 goes first.
+      expect(store.pruneSnapshots(250)).toBe(1);
+      expect(store.getSnapshot(H3)).toBeNull();
+      // Then the snapshot of the oldest mark; that mark keeps its hash but loses the snapshot.
+      expect(store.pruneSnapshots(150)).toBe(1);
+      expect(store.getSnapshot(H1)).toBeNull();
+      expect(store.getSnapshot(H2)).not.toBeNull();
+      const marks = store.getMarks(id);
+      expect(marks.find((entry) => entry.path === "old.txt")).toMatchObject({
+        resultHash: H1,
+        snapshotHash: null,
+      });
+      expect(marks.find((entry) => entry.path === "new.txt")?.snapshotHash).toBe(H2);
+      expect(store.snapshotUsage()).toEqual({ count: 1, bytes: 100 });
+    });
+
+    it("forgets a stale identity with its marks, override and unreferenced snapshots", () => {
+      const gone = row({ lastSeenAt: "2025-03-01T00:00:00Z" });
+      const kept = row({
+        startCommit: S2,
+        checkoutPath: "/repos/kept",
+        lastSeenAt: "2025-05-01T00:00:00Z",
+      });
+      kept.worktreeId = worktreeId(COMMON, "/repos/kept", S2);
+      store.upsertWorktree(gone);
+      store.upsertWorktree(kept);
+      store.setStartOverride(gone.worktreeId, S3, "2025-02-01T00:00:00Z");
+      store.putSnapshot(H1, bytes(10));
+      store.putSnapshot(H2, bytes(10));
+      store.setMarks(gone.worktreeId, [
+        { path: "a.txt", resultHash: H1, viewedAt: "2025-02-01T00:00:00Z", snapshotHash: H1 },
+        { path: "b.txt", resultHash: H2, viewedAt: "2025-02-01T00:00:00Z", snapshotHash: H2 },
+      ]);
+      // The same content viewed in the identity that stays.
+      store.setMarks(kept.worktreeId, [
+        { path: "b.txt", resultHash: H2, viewedAt: "2025-02-01T00:00:00Z", snapshotHash: H2 },
+      ]);
+
+      const stale = store.listStaleWorktrees(
+        COMMON,
+        new Set(["/repos/kept"]),
+        "2025-04-01T00:00:00Z",
+      );
+      expect(stale.map((entry) => entry.worktreeId)).toEqual([gone.worktreeId]);
+      expect(store.listStaleWorktrees(COMMON, new Set(), "2025-02-15T00:00:00Z")).toEqual([]);
+
+      store.deleteWorktree(gone.worktreeId);
+      expect(store.getWorktree(gone.worktreeId)).toBeNull();
+      expect(store.getStartOverride(gone.worktreeId)).toBeNull();
+      expect(store.getMarks(gone.worktreeId)).toEqual([]);
+      expect(store.getSnapshot(H1)).toBeNull();
+      expect(store.getSnapshot(H2)).not.toBeNull();
+      expect(store.getMarks(kept.worktreeId)).toHaveLength(1);
+    });
+
+    it("clears every mark and snapshot, keeping identities and overrides", () => {
+      store.upsertWorktree(row());
+      const id = row().worktreeId;
+      store.setStartOverride(id, S2, "2025-06-01T00:00:00Z");
+      store.putSnapshot(H1, bytes(10));
+      store.setMarks(id, [
+        { path: "a.txt", resultHash: H1, viewedAt: "2025-07-01T00:00:00Z", snapshotHash: H1 },
+      ]);
+      store.clearReviewData();
+      expect(store.getMarks(id)).toEqual([]);
+      expect(store.snapshotUsage()).toEqual({ count: 0, bytes: 0 });
+      expect(store.getStartOverride(id)?.commit).toBe(S2);
+      expect(store.getWorktree(id)).not.toBeNull();
+      store.close();
+      store = open();
+      expect(store.getMarks(id)).toEqual([]);
+    });
+  });
+
   it("refuses every call once closed", () => {
     store.close();
     expect(() => store.getWorktree("x")).toThrow(/closed/);
