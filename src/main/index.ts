@@ -25,7 +25,7 @@ import { APP_URL, isAppUrl, registerAppProtocol, registerAppSchemePrivileged } f
 import { SettingsStore } from "./settings";
 import { SETTINGS_WINDOW_SIZE, SettingsWindow } from "./settings-window";
 import { loadLoginEnv } from "./shell-env";
-import { testLaunchLog } from "./test-hooks";
+import { testLaunchLog, testMenuClicks } from "./test-hooks";
 import { applyAppearance, onThemeChanged, resolvedTheme, themeState } from "./theme";
 import {
   createWindow,
@@ -285,6 +285,26 @@ function start(): void {
   app.on("browser-window-focus", syncMenu);
   app.on("browser-window-blur", syncMenu);
 
+  // End-to-end runs: click menu items the way a person would (`test-hooks.ts`).
+  let pendingMenuClicks = testMenuClicks();
+  const clickTestMenuItems = (win: BrowserWindow | null) => {
+    const ids = pendingMenuClicks;
+    if (!ids) return;
+    pendingMenuClicks = null;
+    const menu = Menu.getApplicationMenu();
+    applyCommandState(menu, win ? (commandStates.get(win.webContents.id) ?? null) : null);
+    for (const id of ids) {
+      const item = menu?.getMenuItemById(id);
+      if (!item?.enabled) {
+        log.info("test menu click skipped", { id, reason: item ? "disabled" : "unknown" });
+        continue;
+      }
+      log.info("test menu click", { id });
+      item.click(undefined, win ?? undefined, win?.webContents);
+    }
+    syncMenu();
+  };
+
   installMainIpc({
     log: log.child("ipc"),
     isTrustedSender: (event) => {
@@ -353,6 +373,10 @@ function start(): void {
       checked: new Set<CheckableCommandId>(request.checked),
     });
     syncMenu();
+    if (pendingMenuClicks && windows.scanWindows()[0] === win) {
+      // After this report is answered, so the page is ready for the commands.
+      setTimeout(() => clickTestMenuItems(win), 0);
+    }
     return ok({});
   });
 
@@ -456,6 +480,11 @@ function start(): void {
 
   void openInitialWindows(windows, opener, settings.get().restoreWindows).then(() => {
     droppedFolders.drainInto((path) => void opener.open(path));
+    if (pendingMenuClicks && windows.scanWindows().length === 0) {
+      const welcome = windows.all()[0];
+      if (!welcome || loaded.has(welcome)) clickTestMenuItems(null);
+      else welcome.webContents.once("did-finish-load", () => clickTestMenuItems(null));
+    }
   });
 
   app.on("second-instance", () => {

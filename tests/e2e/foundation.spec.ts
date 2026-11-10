@@ -101,6 +101,8 @@ test.describe(`foundation (${target})`, () => {
         mainSettings: keys(api.main?.settings ?? {}),
         mainFolder: keys(api.main?.folder ?? {}),
         mainWindow: keys(api.main?.window ?? {}),
+        mainOpenIn: keys(api.main?.openIn ?? {}),
+        mainGit: keys(api.main?.git ?? {}),
         core: keys(api.core ?? {}),
         coreApp: keys(api.core?.app ?? {}),
         coreRequest: keys(api.core?.request ?? {}),
@@ -112,11 +114,24 @@ test.describe(`foundation (${target})`, () => {
     });
     expect(shape.frozen).toEqual([true, true, true, true, true]);
     expect(shape.top).toEqual(["core", "main", "off", "on"]);
-    expect(shape.main).toEqual(["app", "folder", "settings", "window"]);
+    expect(shape.main).toEqual([
+      "about",
+      "app",
+      "clipboard",
+      "folder",
+      "git",
+      "integrations",
+      "logs",
+      "openIn",
+      "settings",
+      "window",
+    ]);
     expect(shape.mainApp).toEqual(["ping"]);
-    expect(shape.mainSettings).toEqual(["get", "set"]);
+    expect(shape.mainSettings).toEqual(["get", "open", "set"]);
     expect(shape.mainFolder).toEqual(["choose", "open", "openRecent"]);
-    expect(shape.mainWindow).toEqual(["state"]);
+    expect(shape.mainWindow).toEqual(["commands", "state"]);
+    expect(shape.mainOpenIn).toEqual(["editor", "finder", "terminal"]);
+    expect(shape.mainGit).toEqual(["choose", "detect"]);
     expect(shape.core).toEqual([
       "app",
       "comparison",

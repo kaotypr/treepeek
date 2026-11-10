@@ -11,6 +11,10 @@ import { delimiter } from "node:path";
  *   shown.
  * - `TREEPEEK_E2E_LAUNCH_LOG`: a file "Open in…", the clipboard and "Open Logs Folder"
  *   append to (`open-in/launcher.ts`), instead of opening apps or writing the clipboard.
+ * - `TREEPEEK_E2E_MENU`: menu item ids, separated by commas, clicked once each after
+ *   launch, the way a person picks them from the menu bar: for the first scan window, once
+ *   it has reported its commands (as if it were focused, which background-mode windows
+ *   never are), or with no window when none scans. A disabled item is skipped and logged.
  * - `TREEPEEK_E2E_GIT_OVERRIDE_ONLY` is read by the core service (`core/index.ts`).
  */
 export function testHooksEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
@@ -29,4 +33,14 @@ export function testDialogAnswers(
   if (raw === undefined) return null;
   const answers = raw.split(delimiter).filter(Boolean);
   return () => answers.shift() ?? null;
+}
+
+/** The menu item ids `TREEPEEK_E2E_MENU` asks to click, or `null` when it is unset. */
+export function testMenuClicks(env: NodeJS.ProcessEnv = process.env): string[] | null {
+  const raw = testHooksEnabled(env) ? env.TREEPEEK_E2E_MENU : undefined;
+  if (!raw) return null;
+  return raw
+    .split(",")
+    .map((id) => id.trim())
+    .filter(Boolean);
 }
