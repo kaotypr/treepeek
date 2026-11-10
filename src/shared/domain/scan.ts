@@ -165,6 +165,17 @@ export interface TimelineEntry {
 }
 
 /**
+ * Why a window's folder cannot be scanned at all, carried in the `invalidRequest` error of
+ * `session.open` and `scan.start` as `detail.scanRoot`:
+ *
+ * - `missing`: it does not exist (any more);
+ * - `notAFolder`: it is a file;
+ * - `unreadable`: its entries cannot be listed (permissions, or macOS privacy controls).
+ */
+export const SCAN_ROOT_PROBLEMS = Object.freeze(["missing", "notAFolder", "unreadable"] as const);
+export type ScanRootProblem = (typeof SCAN_ROOT_PROBLEMS)[number];
+
+/**
  * A folder with a `.git` marker that the scan could not read as a checkout for a reason the
  * person should see: Git's `safe.directory` refusal (`dubiousOwnership`), a timeout, or an
  * error. Folders that are simply not checkouts (a stale `.git` file) are not problems.

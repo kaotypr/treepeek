@@ -49,6 +49,7 @@ import {
   type TimelineEntrySchema,
 } from "../../../src/shared/ipc";
 import { createLogger, type Logger } from "../../../src/shared/log";
+import { DEFAULT_SETTINGS } from "../../../src/shared/settings";
 
 function memoryLogger(): { log: Logger; lines: string[] } {
   const lines: string[] = [];
@@ -150,9 +151,64 @@ describe("contract", () => {
     expect(unknownKey.ok).toBe(false);
   });
 
-  it("never lets the renderer set the git binary", () => {
+  it("never lets the renderer set the git binary, only clear it", () => {
     const result = parseRequest(mainCalls["settings.set"], { gitPath: "/tmp/evil" });
     expect(result).toMatchObject({ ok: false, error: { code: "invalidRequest" } });
+    expect(parseRequest(mainCalls["settings.set"], { gitPath: null }).ok).toBe(true);
+  });
+
+  it("validates the editor, terminal and review settings", () => {
+    const set = mainCalls["settings.set"];
+    for (const good of [
+      { editor: { kind: "auto" } },
+      { editor: { kind: "app", bundleId: "com.microsoft.VSCode" } },
+      { editor: { kind: "custom", command: "myeditor --line {line} {path}" } },
+      { terminal: { kind: "custom", command: "'/Applications/My Term.app/x' {path}" } },
+      { defaultComparison: "working" },
+      { restoreWindows: false },
+    ]) {
+      expect(parseRequest(set, good).ok, JSON.stringify(good)).toBe(true);
+    }
+    for (const bad of [
+      { editor: { kind: "app", bundleId: "-a Calculator" } },
+      { editor: { kind: "app", bundleId: "com.x", extra: 1 } },
+      { editor: { kind: "custom", command: "myeditor --line {line}" } },
+      { editor: { kind: "custom", command: "my'editor {path}" } },
+      { editor: { kind: "shell", command: "rm -rf {path}" } },
+      { defaultComparison: "base" },
+      { restoreWindows: "yes" },
+    ]) {
+      expect(parseRequest(set, bad).ok, JSON.stringify(bad)).toBe(false);
+    }
+  });
+
+  it("accepts only absolute local paths for Open in…, and known copy kinds", () => {
+    expect(parseRequest(mainCalls["openIn.finder"], { path: "/w/a b;c" }).ok).toBe(true);
+    expect(parseRequest(mainCalls["openIn.finder"], { path: "relative" }).ok).toBe(false);
+    expect(parseRequest(mainCalls["openIn.finder"], { path: "https://evil.example" }).ok).toBe(
+      false,
+    );
+    expect(parseRequest(mainCalls["openIn.editor"], { path: "/w/a", line: 12 }).ok).toBe(true);
+    expect(parseRequest(mainCalls["openIn.editor"], { path: "/w/a", line: 0 }).ok).toBe(false);
+    expect(parseRequest(mainCalls["openIn.editor"], { path: "/w/a", line: 1.5 }).ok).toBe(false);
+    expect(
+      parseRequest(mainCalls["clipboard.copy"], { text: "a".repeat(40), kind: "commit" }).ok,
+    ).toBe(true);
+    expect(parseRequest(mainCalls["clipboard.copy"], { text: "x", kind: "url" }).ok).toBe(false);
+  });
+
+  it("carries command ids in command.run and window.commands", () => {
+    expect(v.safeParse(mainEvents["command.run"].payload, { id: "view.timeline" }).success).toBe(
+      true,
+    );
+    expect(v.safeParse(mainEvents["command.run"].payload, { id: "shell.exec" }).success).toBe(
+      false,
+    );
+    const report = mainCalls["window.commands"];
+    expect(parseRequest(report, { enabled: ["scan.refresh"], checked: ["view.timeline"] }).ok).toBe(
+      true,
+    );
+    expect(parseRequest(report, { enabled: [], checked: ["scan.refresh"] }).ok).toBe(false);
   });
 
   it("validates git.state as the domain's GitState", () => {
@@ -189,7 +245,7 @@ describe("contract", () => {
         state: { found: false, problem: "xcodeMissing" },
       }).success,
     ).toBe(true);
-    expect(CONTRACT_VERSION).toBe(6);
+    expect(CONTRACT_VERSION).toBe(7);
   });
 
   it("carries paths.validate between main and core, bounded", () => {
@@ -202,6 +258,22 @@ describe("contract", () => {
     expect(
       v.safeParse(CoreToMainSchema, { type: "paths.validate", id: 4, valid: [true, false] })
         .success,
+    ).toBe(true);
+  });
+
+  it("carries git.probe between main and core", () => {
+    expect(
+      v.safeParse(MainToCoreSchema, { type: "git.probe", id: 1, path: "/x/git" }).success,
+    ).toBe(true);
+    expect(v.safeParse(MainToCoreSchema, { type: "git.probe", id: 0, path: "/x" }).success).toBe(
+      false,
+    );
+    expect(
+      v.safeParse(CoreToMainSchema, {
+        type: "git.probe",
+        id: 1,
+        state: { found: false, problem: "tooOld", detail: "old" },
+      }).success,
     ).toBe(true);
   });
 
@@ -598,12 +670,7 @@ describe("MainRouter (main path)", () => {
   it("returns invalidRequest for an invalid payload and rejects unknown channels", async () => {
     const router = new MainRouter(memoryLogger().log);
     router.handle(mainCalls["settings.set"], (_ctx, patch) =>
-      ok({
-        appearance: patch.appearance ?? "system",
-        gitPath: null,
-        recentFolders: [],
-        windows: [],
-      }),
+      ok({ ...DEFAULT_SETTINGS, appearance: patch.appearance ?? "system" }),
     );
     expect(
       await router.dispatch({ ch: "settings.set", p: { appearance: 1 } }, { windowId: 1 }),

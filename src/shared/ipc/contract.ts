@@ -1,8 +1,10 @@
 import * as v from "valibot";
+import { CHECKABLE_COMMAND_IDS, COMMAND_IDS } from "../commands";
 import { LISTABLE_COMPARISON_KINDS } from "../domain/compare";
 import { GIT_PROBLEMS } from "../domain/git";
 import {
   AppearanceSchema,
+  BundleIdSchema,
   SettingsPatchSchema,
   SettingsSchema,
   WindowUiStateSchema,
@@ -25,7 +27,7 @@ import {
  * Bumped whenever a channel's shape changes. Main, the core service and every window come
  * from one build, so a mismatch means something is badly wrong; it is still checked.
  */
-export const CONTRACT_VERSION = 6;
+export const CONTRACT_VERSION = 7;
 
 const Empty = v.strictObject({});
 
@@ -51,6 +53,45 @@ export const GitStateSchema = v.variant("found", [
   }),
 ]);
 
+/** What a window shows; main tells each page in `window.scanRoot`. */
+export const WINDOW_KINDS = ["welcome", "scan", "settings", "about"] as const;
+export type WindowKind = (typeof WINDOW_KINDS)[number];
+
+/** The sections of the Settings window, in order. */
+export const SETTINGS_SECTIONS = [
+  "general",
+  "review",
+  "integrations",
+  "git",
+  "updates",
+  "advanced",
+] as const;
+export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
+
+/** An installed app Treepeek can open things in ("Open in…"), as detection found it. */
+export const DetectedAppSchema = v.object({
+  bundleId: BundleIdSchema,
+  name: v.string(),
+  /** Where the `.app` bundle is. */
+  path: v.string(),
+  /** The editor can open a file at a line. */
+  opensAtLine: v.boolean(),
+});
+export type DetectedApp = v.InferOutput<typeof DetectedAppSchema>;
+
+/** What `clipboard.copy` puts on the clipboard. */
+export const COPY_KINDS = ["path", "branch", "commit", "command"] as const;
+
+const LocalPath = v.pipe(
+  v.string(),
+  v.minLength(1),
+  v.maxLength(4096),
+  v.startsWith("/", "The path must be absolute"),
+  v.check((path) => !path.includes("\0"), "The path must not contain NUL"),
+);
+
+const CommandIdSchema = v.picklist(COMMAND_IDS);
+
 // Renderer ↔ main (`ipcRenderer.invoke`)
 
 export const mainCalls = {
@@ -71,11 +112,12 @@ export const mainCalls = {
   }),
   /**
    * Shows the native folder dialog attached to the calling window. A chosen folder opens in
-   * its own window, or focuses the window already showing it; `null` when cancelled.
+   * its own window, or focuses the window already showing it; `null` when cancelled. With
+   * `replace`, a scan window that could not scan its folder closes once another one opens.
    */
   "folder.choose": defineCall({
     name: "folder.choose",
-    request: Empty,
+    request: v.strictObject({ replace: v.exactOptional(v.boolean()) }),
     response: v.nullable(v.object({ path: v.string() })),
   }),
   /**
@@ -103,6 +145,111 @@ export const mainCalls = {
     request: v.strictObject({ ui: WindowUiStateSchema }),
     response: v.object({}),
   }),
+  /**
+   * Which of the calling window's commands are enabled and which are checked now. Main
+   * enables and checks the menu items of the focused window from it.
+   */
+  "window.commands": defineCall({
+    name: "window.commands",
+    request: v.strictObject({
+      enabled: v.pipe(v.array(CommandIdSchema), v.maxLength(COMMAND_IDS.length)),
+      checked: v.pipe(
+        v.array(v.picklist(CHECKABLE_COMMAND_IDS)),
+        v.maxLength(CHECKABLE_COMMAND_IDS.length),
+      ),
+    }),
+    response: v.object({}),
+  }),
+  /** Opens the Settings window, or brings it forward, at `section` when given. */
+  "settings.open": defineCall({
+    name: "settings.open",
+    request: v.strictObject({ section: v.exactOptional(v.picklist(SETTINGS_SECTIONS)) }),
+    response: v.object({}),
+  }),
+  /**
+   * "Open in…": shows a checkout folder (or a file) selected in Finder. Every `openIn.*`
+   * path must lie in some window's scan (main asks the core service); `notInScan` otherwise.
+   */
+  "openIn.finder": defineCall({
+    name: "openIn.finder",
+    request: v.strictObject({ path: LocalPath }),
+    response: v.object({}),
+  }),
+  /** Opens a file or folder in the configured editor, at `line` where the editor can. */
+  "openIn.editor": defineCall({
+    name: "openIn.editor",
+    request: v.strictObject({
+      path: LocalPath,
+      line: v.exactOptional(v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(10_000_000))),
+    }),
+    response: v.object({}),
+  }),
+  /** Opens the configured terminal at a checkout folder. */
+  "openIn.terminal": defineCall({
+    name: "openIn.terminal",
+    request: v.strictObject({ path: LocalPath }),
+    response: v.object({}),
+  }),
+  /** Puts text on the clipboard: a checkout path, a branch name, a full commit id, a command. */
+  "clipboard.copy": defineCall({
+    name: "clipboard.copy",
+    request: v.strictObject({
+      text: v.pipe(v.string(), v.minLength(1), v.maxLength(8192)),
+      kind: v.picklist(COPY_KINDS),
+    }),
+    response: v.object({}),
+  }),
+  /**
+   * The installed editors and terminals Treepeek knows. Detected once per session and
+   * cached; `refresh` looks again.
+   */
+  "integrations.detect": defineCall({
+    name: "integrations.detect",
+    request: v.strictObject({ refresh: v.exactOptional(v.boolean()) }),
+    response: v.object({
+      editors: v.array(DetectedAppSchema),
+      terminals: v.array(DetectedAppSchema),
+    }),
+  }),
+  /**
+   * Lets the person pick a git binary in a native file dialog. The core service checks it;
+   * a usable one becomes the override (`settings.gitPath`) and discovery runs again. The
+   * answer carries what the check found, so a git that is too old is named where it was
+   * picked; `null` when the dialog was cancelled.
+   */
+  "git.choose": defineCall({
+    name: "git.choose",
+    request: Empty,
+    response: v.nullable(v.object({ path: v.string(), state: GitStateSchema })),
+  }),
+  /** Runs git discovery again ("Try again", "Detect again"); the result arrives as `git.state`. */
+  "git.detect": defineCall({
+    name: "git.detect",
+    request: Empty,
+    response: v.object({}),
+  }),
+  /** Shows the logs folder in Finder. */
+  "logs.open": defineCall({
+    name: "logs.open",
+    request: Empty,
+    response: v.object({}),
+  }),
+  /** What the About window shows: version, license, copyright and the bundled notices. */
+  "about.info": defineCall({
+    name: "about.info",
+    request: Empty,
+    response: v.object({
+      name: v.string(),
+      version: v.string(),
+      license: v.string(),
+      copyright: v.string(),
+      /** The `NOTICE` file, when this build carries it. */
+      notice: v.nullable(v.string()),
+      /** `THIRD_PARTY_NOTICES`, when this build carries it. */
+      thirdPartyNotices: v.nullable(v.string()),
+      versions: v.object({ electron: v.string(), chrome: v.string(), node: v.string() }),
+    }),
+  }),
 } as const satisfies CallMap;
 
 export const mainEvents = {
@@ -113,6 +260,7 @@ export const mainEvents = {
   "window.scanRoot": defineEvent({
     name: "window.scanRoot",
     payload: v.object({
+      kind: v.picklist(WINDOW_KINDS),
       scanRoot: v.nullable(v.string()),
       ui: v.nullable(WindowUiStateSchema),
       vibrancy: v.boolean(),
@@ -134,6 +282,25 @@ export const mainEvents = {
     name: "git.state",
     payload: GitStateSchema,
     sticky: true,
+  }),
+  /** The settings now, sent when a page loads and after every change. */
+  "settings.changed": defineEvent({
+    name: "settings.changed",
+    payload: SettingsSchema,
+    sticky: true,
+  }),
+  /**
+   * A native menu item asks the focused window to run one of its commands; the page runs
+   * it through its command registry, exactly as its shortcut would.
+   */
+  "command.run": defineEvent({
+    name: "command.run",
+    payload: v.object({ id: CommandIdSchema }),
+  }),
+  /** The Settings window should show this section (it was asked for by `settings.open`). */
+  "settings.section": defineEvent({
+    name: "settings.section",
+    payload: v.object({ section: v.picklist(SETTINGS_SECTIONS) }),
   }),
 } as const satisfies EventMap;
 

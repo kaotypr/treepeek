@@ -51,6 +51,15 @@ export const MainToCoreSchema = v.variant("type", [
     id: v.pipe(v.number(), v.integer(), v.minValue(1)),
     paths: v.pipe(v.array(PathSchema), v.maxLength(MAX_VALIDATE_PATHS)),
   }),
+  /**
+   * Main asks whether one binary, picked by the person, is a usable git, before it becomes
+   * the override. The core service answers with a `git.probe` carrying the same `id`.
+   */
+  v.object({
+    type: v.literal("git.probe"),
+    id: v.pipe(v.number(), v.integer(), v.minValue(1)),
+    path: PathSchema,
+  }),
 ]);
 export type MainToCore = v.InferOutput<typeof MainToCoreSchema>;
 
@@ -65,6 +74,8 @@ export const CoreToMainSchema = v.variant("type", [
     id: v.number(),
     valid: v.pipe(v.array(v.boolean()), v.maxLength(MAX_VALIDATE_PATHS)),
   }),
+  /** What checking that one binary found, as a `GitState`. */
+  v.object({ type: v.literal("git.probe"), id: v.number(), state: GitStateSchema }),
 ]);
 export type CoreToMain = v.InferOutput<typeof CoreToMainSchema>;
 
