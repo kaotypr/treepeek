@@ -66,14 +66,14 @@ export async function validateCandidates(
   }
 
   const worktreeLists = new Map<string, readonly WorktreeEntry[]>();
-  const listedPaths = new Map<string, ReadonlySet<string>>();
+  const listedByRepository = new Map<string, ReadonlySet<string>>();
   const accepted = new Map<string, ValidCandidate>();
   await Promise.all(
     [...byRepository].map(async ([commonDir, items]) => {
       const repo = ctx.repository(commonDir);
       try {
         const listed = await listedCheckouts(repo, ctx, worktreeLists);
-        listedPaths.set(commonDir, listed);
+        listedByRepository.set(commonDir, listed);
         for (const item of items) {
           if (!listed.has(item.path)) continue;
           accepted.set(item.path, {
@@ -98,7 +98,7 @@ export async function validateCandidates(
     return item ? [item] : [];
   });
   problems.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
-  return { valid, problems, worktreeLists, listed: listedPaths };
+  return { valid, problems, worktreeLists, listed: listedByRepository };
 }
 
 async function identify(
@@ -146,12 +146,13 @@ async function listedCheckouts(
 ): Promise<Set<string>> {
   const entries = await worktreeList(repo, ctx.signal);
   lists.set(repo.commonDir, entries);
-  return realPaths(entries);
+  return listedPaths(entries);
 }
 
 /**
  * `worktree list --porcelain -z`, shared through the repository's cache and read again
- * when the repository's `worktrees/` folder changes (`worktreeListStamp`).
+ * when the repository's `worktrees/` folder changes (`worktreeListStamp`) or live refresh
+ * saw a worktree added or removed.
  */
 export async function worktreeList(
   repo: RepositoryResources,
@@ -173,7 +174,8 @@ export async function worktreeList(
   );
 }
 
-async function realPaths(entries: readonly WorktreeEntry[]): Promise<Set<string>> {
+/** Real paths of the (non-bare) checkouts in a worktree list; a path that is gone is left out. */
+export async function listedPaths(entries: readonly WorktreeEntry[]): Promise<Set<string>> {
   const paths = await Promise.all(
     entries.map((entry) =>
       entry.bare ? Promise.resolve(null) : realpath(entry.path).catch(() => null),

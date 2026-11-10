@@ -32,13 +32,23 @@ export interface ScannedCheckout {
   readonly reflogStart: ReflogEntry | null;
 }
 
+/** How `resolveCheckout` treats the checkout's cached status and comparison lists. */
+export interface ResolveOptions {
+  /**
+   * Default `true`: read the status afresh and drop the comparison lists that involve the
+   * index or the working tree. A scan (⌘R) does, so it never trusts what live refresh may
+   * have missed; live refresh passes `false`, having already dropped what its change made
+   * stale (`RepoCache.invalidate`).
+   */
+  fresh?: boolean;
+}
+
 /**
  * Resolves one checkout (git-service design, "The scan", step 4): its status, origin URL,
  * start and history counts.
  *
- * - The status is read fresh on every scan: until live refresh watches the working tree,
- *   nothing else would tell the cache that a file changed. The checkout's comparison lists
- *   that involve the index or the working tree are dropped for the same reason.
+ * - The status is read fresh on every scan, and the checkout's comparison lists that
+ *   involve the index or the working tree are dropped, unless `options.fresh` is `false`.
  * - The reflog start is cached, and read again when `logs/HEAD` changes (a commit, a
  *   recreated worktree, an expiry); the origin URL likewise follows the config files.
  * - The start goes through `resolveIdentity`, so a stored override wins and an expired
@@ -48,15 +58,18 @@ export interface ScannedCheckout {
 export async function resolveCheckout(
   candidate: ValidCandidate,
   ctx: ScanContext,
+  options: ResolveOptions = {},
 ): Promise<ScannedCheckout> {
   const { repo } = candidate;
   const { signal } = ctx;
-  if (repo.cache.statuses.peek(candidate.path) !== undefined) {
-    repo.cache.statuses.delete(candidate.path);
+  if (options.fresh !== false) {
+    if (repo.cache.statuses.peek(candidate.path) !== undefined) {
+      repo.cache.statuses.delete(candidate.path);
+    }
+    // Comparison lists that involve the index or the working tree go stale the same way, so
+    // a scan never shows an old list for a checkout it has just read again.
+    repo.cache.comparisons(candidate.path).clear();
   }
-  // Comparison lists that involve the index or the working tree go stale the same way, so
-  // a scan never shows an old list for a checkout it has just read again.
-  repo.cache.comparisons(candidate.path).clear();
   const [status, originUrl] = await Promise.all([
     readStatus(repo, candidate.path, signal),
     readOrigin(repo, candidate, signal),

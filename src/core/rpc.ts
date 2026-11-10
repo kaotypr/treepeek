@@ -79,6 +79,8 @@ export class CoreRpc {
   readonly #handlers = new Map<string, Registered>();
   readonly #pending = new Map<string, Pending>();
   readonly #inflight = new Set<AbortController>();
+  /** Calls received per channel (end-to-end tests count them through `test.liveRefresh`). */
+  readonly #counts = new Map<string, number>();
   #closed = false;
 
   constructor(port: PortLike, ctx: RpcIdentity, calls: CallMap = coreCalls) {
@@ -108,6 +110,11 @@ export class CoreRpc {
     this.#port.postMessage({ t: "event", ch: event.name, p: parsed.value });
   }
 
+  /** How many calls arrived on each channel, unknown and invalid ones included. */
+  callCounts(): Record<string, number> {
+    return Object.fromEntries(this.#counts);
+  }
+
   hello(): void {
     this.#port.postMessage({ t: "hello", contractVersion: CONTRACT_VERSION });
   }
@@ -124,6 +131,7 @@ export class CoreRpc {
 
   async #run(channel: string, payload: unknown): Promise<Completed> {
     const entry = Object.hasOwn(this.#calls, channel) ? this.#handlers.get(channel) : undefined;
+    if (entry) this.#counts.set(channel, (this.#counts.get(channel) ?? 0) + 1);
     if (!entry) {
       this.#ctx.log.warn("rejected a call on an unknown channel", { channel });
       return done(err("invalidRequest", `Unknown channel: ${channel}`));
