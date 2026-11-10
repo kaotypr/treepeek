@@ -28,6 +28,8 @@ the same pull request and say why.
 | Live refresh timing, streams and memory (local machine only)     | `TREEPEEK_PERF=1 bun run test:e2e tests/e2e/live-refresh.perf.spec.ts`  |
 | Package an unsigned arm64 app                                    | `bun run package`                                                       |
 | End-to-end tests against the package                             | `APP_TARGET=packaged bun run test:e2e`                                  |
+| Third-party notices into `build/THIRD_PARTY_NOTICES`             | `bun run notices` (`bun run package` runs it first)                     |
+| Licenses of everything the app ships, against the allow-list     | `bun run licenses:check`                                                |
 | Prototype parity check (local only)                              | `TREEPEEK_PROTOTYPE=<prototype checkout> bun scripts/parity-check.ts`   |
 | Scan benchmark (local only; results in `docs/platform-notes.md`) | `bun scripts/bench-scan.ts`                                             |
 
@@ -42,6 +44,8 @@ facts this setup rests on and when to re-check them.
   `bun run build` and `bun run test:e2e` too.
 - Touching packaging, fuses, the `app://` protocol, the preload, or adding a runtime
   dependency: `bun run package` and `APP_TARGET=packaged bun run test:e2e`.
+- Adding or upgrading a package the app imports or depends on at run time:
+  `bun run licenses:check`.
 - Report what you actually ran and what it returned. A check you did not run is not a
   pass; say it is unverified.
 
@@ -119,6 +123,9 @@ the code to the process that owns it.
 | Color tokens (light and dark)                                                  | `src/renderer/styles/tokens.css`, window background in `src/shared/theme.ts`                                |
 | Fuses, signing, minimum macOS                                                  | `electron-builder.yml`                                                                                      |
 | Repository fixtures for tests                                                  | `tests/support/git-fixture.ts`                                                                              |
+| What the app ships and its licenses: notices, the allow-list check             | `build/licenses.ts`, `build/generate-notices.ts`, `build/check-licenses.ts`, `build/license-allowlist.json` |
+| CI, issue and pull request templates, Dependabot; settings kept on GitHub      | `.github/` (`workflows/ci.yml`), `docs/repository-settings.md`                                              |
+| Electronegativity findings reviewed as acceptable                              | `build/electronegativity-reviewed.json`, checked by `build/check-electronegativity.ts`                      |
 
 ## IPC rules
 
@@ -217,6 +224,11 @@ These carry Electron's security checklist into this codebase. Breaking one is a 
 - A new runtime dependency (`dependencies`, not `devDependencies`) changes what gets
   packaged: justify it, check its license is compatible with Apache-2.0, and re-run the
   packaging checks. Native modules must be unpacked from asar.
+- What the app ships is its runtime dependencies plus every package `src/` imports (the
+  bundled dev dependencies), with all they depend on. `bun run licenses:check` fails on any
+  license outside `build/license-allowlist.json`; a new license goes there only as a
+  reviewed exception with a reason. An Apache-2.0 package with a NOTICE file must also be
+  named in the root `NOTICE`.
 
 ## Tests
 
