@@ -5,6 +5,7 @@ import {
   applyRefreshTimeline,
   KIND_TO_KEYS,
   pruneRemoved,
+  pushedByCore,
   staleKeys,
 } from "../../../src/renderer/data/refresh-sync";
 import { emptyScan, orderedCheckouts, type ScanData } from "../../../src/renderer/data/scan-model";
@@ -86,6 +87,11 @@ describe("KIND_TO_KEYS", () => {
     );
     expect(stale).toEqual([keys.checkoutComparisons("/w/wt-a"), keys.reviewStatus("/w/wt-a")]);
     expect(stale.some((key) => key[0] === "fileDiff")).toBe(false);
+  });
+
+  it("leaves the review status to the core service, which sends it again itself", () => {
+    expect(pushedByCore(keys.reviewStatus("/w/wt-a"))).toBe(true);
+    expect(pushedByCore(keys.checkoutComparisons("/w/wt-a"))).toBe(false);
   });
 
   it("refetches only comparison lists when refs or the upstream moved", () => {

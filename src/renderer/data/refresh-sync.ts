@@ -25,7 +25,7 @@ export type RefreshTimeline = EventPayload<CoreEvents["refresh.timeline"]>;
  * What each kind of change makes stale, for the checkout it happened in:
  *
  * - its working state (`workingTree`, `index`) or HEAD moved: its comparison lists and its
- *   review status;
+ *   review status (which the core service sends again itself, as `review.changed`);
  * - its start moved (`reflog`): the same, since the review scope starts there;
  * - refs or its upstream moved: its comparison lists (`base`, `upstream`), not its review;
  * - `removed`: nothing; the last lists stay on screen while it is selected;
@@ -185,6 +185,15 @@ export function useRefreshPauses(): RefreshPause[] {
   return useStore(refreshStore, (state) => state.paused);
 }
 
+/**
+ * Whether a stale key's new value arrives on its own. The core service computes the review
+ * status of every checkout it refreshes and sends it as `review.changed`, so asking for it
+ * again would only do the same work twice; it is marked stale, so the next selection asks.
+ */
+export function pushedByCore(queryKey: QueryKey): boolean {
+  return queryKey[0] === keys.reviewStatuses()[0];
+}
+
 /** Applies one `refresh.checkout` to the cache: the scan, then the queries it made stale. */
 export function syncRefreshCheckout(
   queryClient: QueryClient,
@@ -198,7 +207,10 @@ export function syncRefreshCheckout(
     scan ? applyRefreshCheckout(scan, payload, selected) : scan,
   );
   for (const queryKey of staleKeys(payload, before)) {
-    void queryClient.invalidateQueries({ queryKey });
+    void queryClient.invalidateQueries({
+      queryKey,
+      refetchType: pushedByCore(queryKey) ? "none" : "active",
+    });
   }
 }
 
