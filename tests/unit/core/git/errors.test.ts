@@ -27,6 +27,9 @@ const SAMPLES = {
     "fatal: unsafe repository ('/Users/someone/repo' is owned by someone else)\nTo add an exception for this directory, call:",
   notARepository: "fatal: not a git repository (or any of the parent directories): .git",
   staleGitFile: "fatal: not a git repository: /Users/someone/repo/.git/worktrees/gone",
+  /** Git 2.56.0 (the GitHub macOS runner's Homebrew Git) for the same stale `.git` file. */
+  staleGitFile256:
+    "fatal: gitfile does not point to a valid repository: /Users/someone/worktrees/gone/.git",
   missingFolder: "fatal: cannot change to '/nonexistent': No such file or directory",
   unknownRevision: [
     "fatal: ambiguous argument 'nope..HEAD': unknown revision or path not in the working tree.",
@@ -44,6 +47,7 @@ describe("classifyGitFailure", () => {
     expect(classifyGitFailure(128, SAMPLES.dubiousOwnershipOld)).toBe("dubiousOwnership");
     expect(classifyGitFailure(128, SAMPLES.notARepository)).toBe("notARepository");
     expect(classifyGitFailure(128, SAMPLES.staleGitFile)).toBe("notARepository");
+    expect(classifyGitFailure(128, SAMPLES.staleGitFile256)).toBe("notARepository");
     expect(classifyGitFailure(128, SAMPLES.missingFolder)).toBe("notARepository");
     expect(classifyGitFailure(128, SAMPLES.unknownRevision)).toBe("refNotFound");
     expect(classifyGitFailure(128, SAMPLES.badObject)).toBe("refNotFound");

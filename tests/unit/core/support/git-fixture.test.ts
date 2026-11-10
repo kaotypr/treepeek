@@ -98,7 +98,10 @@ describe("fixture", () => {
     const dangling = fx.path("stale-dangling");
     const copied = fx.path("stale-copied");
     expect(statSync(join(dangling, ".git")).isFile()).toBe(true);
-    expect(() => gitIn(dangling, ["rev-parse", "--show-toplevel"])).toThrow(/not a git repository/);
+    // Git 2.56 words it "gitfile does not point to a valid repository".
+    expect(() => gitIn(dangling, ["rev-parse", "--show-toplevel"])).toThrow(
+      /not a git repository|gitfile does not point to a valid repository/,
+    );
     expect(gitIn(copied, ["rev-parse", "--show-toplevel"]).trim()).toBe(copied);
     const listed = listedPaths(repo.path);
     expect(listed).not.toContain(dangling);

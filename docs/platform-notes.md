@@ -180,6 +180,10 @@ What is not confirmed:
   `diff-options.txt` never documents it.
 - Git 2.55.0 prints `iso-strict` dates in UTC with `Z`, not `+00:00`. The reflog parser
   accepts both.
+- For a `.git` file whose gitdir is gone, Git 2.56.0 says `fatal: gitfile does not point to
+  a valid repository: <folder>/.git` where 2.55.0 said `fatal: not a git repository:
+  <gitdir>`. `classifyGitFailure` (`src/core/git/errors.ts`) reads both as
+  `notARepository`. Seen on 2026-11-10 with the GitHub macOS runner's Homebrew Git 2.56.0.
 
 ## Scan baseline
 
