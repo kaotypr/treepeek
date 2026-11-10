@@ -238,6 +238,8 @@ Cold is the core service's own measure (its `review status computed` log line, f
 5 s. Selecting the checkout the background reaches last, right after `scan.done` of a ⌘R,
 showed its file list in 11–14 ms; selecting one with nothing running took 23–25 ms (both
 measured from the test, over DevTools, so they include the protocol's round trips).
+Four more runs later the same day, with other work keeping the load average near 8.5:
+cold 722–1,209 ms, warm 385–828 ms, file lists 28–77 ms. Busy, still well under 5 s.
 
 ## Windows: vibrancy, folder drops and the test-only open hook
 
