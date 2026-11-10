@@ -1,0 +1,15 @@
+{
+  "$comment": "Licenses Treepeek may ship without review (SPDX ids), and reviewed exceptions. An exception names one package, grammar or theme, the exact license value it was reviewed for, and why it is acceptable: {\"package\" | \"grammar\" | \"theme\": name, \"license\": value, \"reason\": text}. Checked by `bun run licenses:check`.",
+  "allowed": [
+    "MIT",
+    "ISC",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "Apache-2.0",
+    "0BSD",
+    "CC0-1.0",
+    "BlueOak-1.0.0",
+    "Python-2.0"
+  ],
+  "exceptions": []
+}
