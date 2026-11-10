@@ -32,6 +32,7 @@ describe("SettingsStore", () => {
       gitPath: null,
       restoreWindows: true,
       defaultComparison: "review",
+      hideViewedByDefault: false,
       editor: { kind: "auto" },
       terminal: { kind: "auto" },
       recentFolders: [],
@@ -143,12 +144,14 @@ describe("SettingsStore", () => {
     new SettingsStore(dir).set({
       restoreWindows: false,
       defaultComparison: "working",
+      hideViewedByDefault: true,
       editor: { kind: "custom", command: "myeditor --line {line} {path}" },
       terminal: { kind: "app", bundleId: "com.googlecode.iterm2" },
     });
     expect(new SettingsStore(dir).get()).toMatchObject({
       restoreWindows: false,
       defaultComparison: "working",
+      hideViewedByDefault: true,
       editor: { kind: "custom", command: "myeditor --line {line} {path}" },
       terminal: { kind: "app", bundleId: "com.googlecode.iterm2" },
     });

@@ -12,6 +12,8 @@ export const COMMAND_IDS = [
   "checkout.next",
   "file.previous",
   "file.next",
+  "file.toggleViewed",
+  "file.markViewedAndNext",
   "preview.split",
   "preview.unified",
   "preview.result",
@@ -26,6 +28,9 @@ export const COMMAND_IDS = [
   "checkout.copyPath",
   "checkout.copyBranch",
   "checkout.copyCommit",
+  "checkout.markAllReviewed",
+  "checkout.unmarkAll",
+  "review.undo",
   "app.settings",
 ] as const;
 
@@ -36,6 +41,7 @@ export type CommandId = (typeof COMMAND_IDS)[number];
  * of them are on, next to which commands are enabled (`window.commands`).
  */
 export const CHECKABLE_COMMAND_IDS = [
+  "file.toggleViewed",
   "view.timeline",
   "view.tree",
   "preview.split",

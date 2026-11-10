@@ -156,6 +156,7 @@ export const DefaultComparisonSchema = v.picklist(DEFAULT_COMPARISON_KINDS);
  *   they come back.
  * - `editor` and `terminal` are the "Open in…" apps.
  * - `defaultComparison` is the comparison a newly selected checkout starts on.
+ * - `hideViewedByDefault` starts every file list with "Hide viewed" on.
  *
  * The two lists and the later additions fall back to their defaults when they do not
  * parse, so a damaged entry costs that entry, never the person's other settings.
@@ -165,6 +166,7 @@ export const SettingsSchema = v.object({
   gitPath: v.nullable(GitPathSchema),
   restoreWindows: v.fallback(v.boolean(), true),
   defaultComparison: v.fallback(DefaultComparisonSchema, "review"),
+  hideViewedByDefault: v.fallback(v.boolean(), false),
   editor: v.fallback(AppChoiceSchema, () => ({ kind: "auto" as const })),
   terminal: v.fallback(AppChoiceSchema, () => ({ kind: "auto" as const })),
   recentFolders: v.fallback(
@@ -193,6 +195,7 @@ export const SettingsPatchSchema = v.strictObject({
   gitPath: v.optional(v.null()),
   restoreWindows: v.optional(v.boolean()),
   defaultComparison: v.optional(DefaultComparisonSchema),
+  hideViewedByDefault: v.optional(v.boolean()),
   editor: v.optional(AppChoiceSchema),
   terminal: v.optional(AppChoiceSchema),
 });
@@ -204,6 +207,7 @@ export const StoredSettingsPatchSchema = v.strictObject({
   gitPath: v.optional(v.nullable(GitPathSchema)),
   restoreWindows: v.optional(v.boolean()),
   defaultComparison: v.optional(DefaultComparisonSchema),
+  hideViewedByDefault: v.optional(v.boolean()),
   editor: v.optional(AppChoiceSchema),
   terminal: v.optional(AppChoiceSchema),
   recentFolders: v.optional(v.pipe(v.array(FolderPathSchema), v.maxLength(MAX_RECENT_FOLDERS))),
@@ -216,6 +220,7 @@ export const DEFAULT_SETTINGS: Settings = Object.freeze({
   gitPath: null,
   restoreWindows: true,
   defaultComparison: "review",
+  hideViewedByDefault: false,
   editor: Object.freeze({ kind: "auto" }),
   terminal: Object.freeze({ kind: "auto" }),
   recentFolders: [],
