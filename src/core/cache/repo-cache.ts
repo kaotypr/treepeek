@@ -78,7 +78,7 @@ export class RepoCache {
   /**
    * The filesystem stamps (`stamps.ts`) the entries of `worktreeList`, `starts` and
    * `origins` were read under, with the same keys. A scan reads an entry again when its
-   * stamp changed: until live refresh watches repositories, nothing else invalidates them.
+   * stamp changed, so a rescan never depends on live refresh having seen the change.
    */
   readonly stamps = Object.freeze({
     worktreeList: new Map<string, string>(),

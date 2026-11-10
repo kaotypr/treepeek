@@ -34,6 +34,7 @@ export function CheckoutDetails({ checkout }: { checkout: Checkout }) {
         repository: repositoryName(scan, checkout.path),
         entry: timelineEntry(scan, checkout.path),
         neighbours: repositoryNeighbours(scan, checkout.path),
+        removed: checkout.path in scan.removed,
       }),
       [checkout.path],
     ),
@@ -71,6 +72,16 @@ export function CheckoutDetails({ checkout }: { checkout: Checkout }) {
         </span>
         <ComparisonPopover checkout={checkout} entry={details.entry} />
       </div>
+
+      {details.removed && (
+        <p
+          role="status"
+          className="rounded-md bg-review-changed-surface px-2 py-1 text-review-changed"
+          data-testid="checkout-gone"
+        >
+          This worktree no longer exists.
+        </p>
+      )}
 
       <p className="text-muted-foreground" data-testid="checkout-start">
         {isKnownStart(start) ? (

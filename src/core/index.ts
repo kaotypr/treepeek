@@ -19,6 +19,8 @@ import { SessionRegistry } from "./sessions/registry";
 import type { Session, SessionServices } from "./sessions/session";
 import { openReviewStore } from "./store/open-store";
 import type { ReviewStore } from "./store/review-store";
+import { defaultBackends, parseFaults } from "./watch/backends";
+import { LiveRefresh } from "./watch/live";
 
 const log = createLogger("service");
 const parentPort = process.parentPort;
@@ -28,10 +30,30 @@ const sqlite = probeSqlite();
 const state = new CoreState();
 /** Opened by `core.init`, which carries the user data folder; `null` until then or on failure. */
 let store: ReviewStore | null = null;
+
+/**
+ * Test-only (honoured only with `NODE_ENV=test`): watcher backends that fail every
+ * subscription, comma-separated (`fsevents`, `fs.watch`), so end-to-end tests reach the
+ * `fs.watch` fallback and "Live refresh unavailable".
+ */
+const WATCHER_FAULT_ENV = "TREEPEEK_E2E_WATCHER_FAULT";
+const watcherFaults = parseFaults(
+  process.env.NODE_ENV === "test" ? process.env[WATCHER_FAULT_ENV] : undefined,
+);
+
+/** The watchers and the refreshes they start, shared by every window. */
+const live = new LiveRefresh({
+  state,
+  store: () => store,
+  sessions: () => sessions.all(),
+  log: log.child("live"),
+  backends: defaultBackends(watcherFaults),
+});
 const services: SessionServices = {
   state,
   store: () => store,
   sessions: () => sessions.all(),
+  live,
 };
 
 function openStore(userDataDir: string): void {
@@ -134,6 +156,7 @@ parentPort.on("message", (event) => {
         node: process.versions.node,
         electron: process.versions.electron,
         sqlite,
+        ...(watcherFaults.size > 0 ? { watcherFaults: [...watcherFaults] } : {}),
       });
       openStore(message.userDataDir);
       send({ type: "core.ready", pid: process.pid, contractVersion: CONTRACT_VERSION });
@@ -163,6 +186,11 @@ parentPort.on("message", (event) => {
     case "settings.gitPath":
       discovery.override = message.path;
       void discoverAndReport();
+      return;
+    case "power.resume":
+      void live.revalidate().catch((error: unknown) => {
+        log.error("revalidating after sleep failed", error);
+      });
       return;
     case "git.probe": {
       const { id, path } = message;
@@ -194,6 +222,7 @@ parentPort.on("message", (event) => {
 });
 
 process.on("exit", () => {
+  void live.dispose();
   sessions.closeAll();
   state.close();
   store?.close();

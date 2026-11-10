@@ -249,7 +249,7 @@ describe("contract", () => {
         state: { found: false, problem: "xcodeMissing" },
       }).success,
     ).toBe(true);
-    expect(CONTRACT_VERSION).toBe(8);
+    expect(CONTRACT_VERSION).toBe(9);
   });
 
   it("carries paths.validate between main and core, bounded", () => {

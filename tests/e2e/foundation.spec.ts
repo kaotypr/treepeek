@@ -103,12 +103,15 @@ test.describe(`foundation (${target})`, () => {
         mainWindow: keys(api.main?.window ?? {}),
         mainOpenIn: keys(api.main?.openIn ?? {}),
         mainGit: keys(api.main?.git ?? {}),
+        mainTest: keys(api.main?.test ?? {}),
         core: keys(api.core ?? {}),
         coreApp: keys(api.core?.app ?? {}),
         coreRequest: keys(api.core?.request ?? {}),
         coreComparison: keys(api.core?.comparison ?? {}),
         coreDiff: keys(api.core?.diff ?? {}),
         coreReview: keys(api.core?.review ?? {}),
+        coreRefresh: keys(api.core?.refresh ?? {}),
+        coreTest: keys(api.core?.test ?? {}),
         unchanged: api.main?.app === before && typeof window.treepeek === "object",
         assignmentThrew,
       };
@@ -125,6 +128,7 @@ test.describe(`foundation (${target})`, () => {
       "logs",
       "openIn",
       "settings",
+      "test",
       "window",
     ]);
     expect(shape.mainApp).toEqual(["ping"]);
@@ -133,22 +137,39 @@ test.describe(`foundation (${target})`, () => {
     expect(shape.mainWindow).toEqual(["commands", "state"]);
     expect(shape.mainOpenIn).toEqual(["editor", "finder", "terminal"]);
     expect(shape.mainGit).toEqual(["choose", "detect"]);
+    expect(shape.mainTest).toEqual(["powerResume"]);
     expect(shape.core).toEqual([
       "app",
       "comparison",
       "diff",
+      "refresh",
       "request",
       "review",
       "scan",
       "session",
       "start",
+      "test",
     ]);
     expect(shape.coreApp).toEqual(["info", "ping"]);
     expect(shape.coreRequest).toEqual(["cancel"]);
     expect(shape.coreComparison).toEqual(["list"]);
     expect(shape.coreDiff).toEqual(["file"]);
     expect(shape.coreReview).toEqual(["clearAll", "mark", "markAll", "status", "storeUsage"]);
+    expect(shape.coreRefresh).toEqual(["resume"]);
+    expect(shape.coreTest).toEqual(["liveRefresh"]);
     expect(shape.unchanged).toBe(true);
+  });
+
+  test("the test-only calls refuse to run outside test runs", async () => {
+    // This launch sets no test hook, so the app runs without `NODE_ENV=test`.
+    const answers = await app.page.evaluate(async () => ({
+      live: await window.treepeek.core.test.liveRefresh({ suspend: true }),
+      power: await window.treepeek.main.test.powerResume(),
+    }));
+    expect(answers.live).toMatchObject({ ok: false, error: { code: "invalidRequest" } });
+    expect(answers.power).toMatchObject({ ok: false, error: { code: "invalidRequest" } });
+    expect(app.log("core")).not.toContain("test: live refresh events");
+    expect(app.log("main")).not.toContain("acting as if the Mac woke");
   });
 
   test("require, process and eval are unavailable in the renderer", async () => {

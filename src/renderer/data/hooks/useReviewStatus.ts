@@ -15,6 +15,15 @@ import { core, isIpcFailure, unwrap } from "../client";
 import { keys } from "../keys";
 import { undoRequests, withAllMarks, withMarks } from "../review-model";
 
+/** Asks the core service for one checkout's review status. */
+function fetchStatus(checkoutPath: string): () => Promise<ReviewStatus> {
+  return async () => {
+    const [status] = unwrap(await core().review.status({ checkoutPaths: [checkoutPath] }));
+    if (!status) throw new Error("The core service answered no status.");
+    return status;
+  };
+}
+
 /**
  * A checkout's review status, asked for again whenever the checkout is selected (marks may
  * have changed in another window, or a rescan changed the files). Background status and
@@ -23,13 +32,7 @@ import { undoRequests, withAllMarks, withMarks } from "../review-model";
 export function useReviewStatus(checkoutPath: string | null) {
   return useQuery({
     queryKey: checkoutPath ? keys.reviewStatus(checkoutPath) : ["reviewStatus", null],
-    queryFn: checkoutPath
-      ? async () => {
-          const [status] = unwrap(await core().review.status({ checkoutPaths: [checkoutPath] }));
-          if (!status) throw new Error("The core service answered no status.");
-          return status;
-        }
-      : skipToken,
+    queryFn: checkoutPath ? fetchStatus(checkoutPath) : skipToken,
     // Stale at once, so selecting the checkout asks again; nothing else refetches it.
     staleTime: 0,
     gcTime: Number.POSITIVE_INFINITY,
@@ -37,11 +40,18 @@ export function useReviewStatus(checkoutPath: string | null) {
   });
 }
 
-/** The status the cache holds for a checkout, without asking for it (rows, rings). */
+/**
+ * The status the cache holds for a checkout, without asking for it (rows, rings).
+ *
+ * Disabled rather than given `skipToken`: every observer hands the query its options, and a
+ * refetch (`invalidateQueries` after a scan) runs with whichever observer's came last. Were
+ * those `skipToken`, the selected checkout's refetch would fail with "Missing queryFn".
+ */
 export function useCachedReviewStatus(checkoutPath: string | null): ReviewStatus | undefined {
   return useQuery<ReviewStatus>({
     queryKey: checkoutPath ? keys.reviewStatus(checkoutPath) : ["reviewStatus", null],
-    queryFn: skipToken,
+    queryFn: checkoutPath ? fetchStatus(checkoutPath) : skipToken,
+    enabled: false,
     gcTime: Number.POSITIVE_INFINITY,
   }).data;
 }
@@ -52,7 +62,9 @@ export function useCachedReviewStatuses(paths: readonly string[]): (ReviewStatus
     queries: paths.map(
       (path): UseQueryOptions<ReviewStatus> => ({
         queryKey: keys.reviewStatus(path),
-        queryFn: skipToken,
+        // Disabled with the real query function, as in `useCachedReviewStatus`.
+        queryFn: fetchStatus(path),
+        enabled: false,
         gcTime: Number.POSITIVE_INFINITY,
       }),
     ),

@@ -20,6 +20,15 @@ export default defineConfig({
         },
       },
       {
+        test: {
+          name: "integration",
+          environment: "node",
+          include: ["tests/integration/**/*.test.ts"],
+          // Real repositories, real watchers and the debounce window.
+          testTimeout: 30_000,
+        },
+      },
+      {
         resolve: {
           alias: { "@renderer": resolve(root, "src/renderer") },
         },

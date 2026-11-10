@@ -8,6 +8,7 @@ import { refreshStart, type ScannedCheckout } from "../scan/resolve-checkout";
 import { resolveScan, type ScanResult, walkScanRoot } from "../scan/scan";
 import type { WalkResult } from "../scan/walk";
 import type { ReviewStore } from "../store/review-store";
+import type { LiveRefresh } from "../watch/live";
 import { isWithin, realPathOf } from "./path-rule";
 
 /** What every session shares: the core service's repository state and local store. */
@@ -17,6 +18,8 @@ export interface SessionServices {
   store(): ReviewStore | null;
   /** Every open session, so a change one window makes reaches the others. */
   sessions(): readonly Session[];
+  /** Live refresh: the watchers and the refreshes they start; absent in some tests. */
+  readonly live?: LiveRefresh;
 }
 
 /** The paths one scan produced, for the path rule. */
@@ -63,7 +66,10 @@ export class Session {
   #last: ScanView | null = null;
   #current: ScanView | null = null;
   #scanController: AbortController | null = null;
+  /** Settles when the scan in progress stops, however it stops. */
+  #scanSettled: Promise<void> | null = null;
   #background: AbortController | null = null;
+  #refresh: AbortController | null = null;
   readonly #repositories = new Set<string>();
   readonly #checkouts = new Set<string>();
   #closed = false;
@@ -103,7 +109,9 @@ export class Session {
     this.#assertOpen();
     this.#stopScan();
     this.#stopBackground();
+    this.#stopRefresh();
     if (scanRoot !== this.#scanRoot) {
+      this.#services.live?.release(this);
       this.#releaseAll();
       this.#scanRoot = scanRoot;
       this.#lastScan = null;
@@ -124,22 +132,27 @@ export class Session {
     if (root === null) throw new GitError("invalidRequest", "The session has no scan root.");
     this.#stopScan();
     this.#stopBackground();
+    // A scan reads everything again; a refresh half way would only apply stale results.
+    this.#stopRefresh();
     const controller = new AbortController();
     this.#scanController = controller;
+    let settled!: () => void;
+    this.#scanSettled = new Promise((resolve) => {
+      settled = resolve;
+    });
     const signal = AbortSignal.any([callSignal, controller.signal]);
-    const ctx: ScanContext = {
-      scanRoot: root,
-      signal,
-      store: this.#services.store(),
-      repository: (commonDir) => this.#acquireRepository(commonDir),
-      log: this.log,
-    };
+    const ctx = this.scanContext(signal);
     const startedAt = Date.now();
     const view: ScanView = { folders: new Set(), checkouts: new Map() };
     const isCurrent = () => !this.#closed && !signal.aborted && this.#scanController === controller;
+    let done = false;
     const settle = () => {
       if (this.#scanController === controller) this.#scanController = null;
       if (this.#current === view) this.#current = null;
+      if (!done) {
+        done = true;
+        settled();
+      }
     };
 
     return {
@@ -174,6 +187,42 @@ export class Session {
         }
       },
     };
+  }
+
+  /**
+   * What a scan, or live refresh, of this session's root runs with: repositories it touches
+   * are acquired for the session.
+   */
+  scanContext(signal: AbortSignal): ScanContext {
+    const root = this.#scanRoot;
+    if (root === null) throw new GitError("invalidRequest", "The session has no scan root.");
+    return {
+      scanRoot: root,
+      signal,
+      store: this.#services.store(),
+      repository: (commonDir) => this.#acquireRepository(commonDir),
+      log: this.log,
+    };
+  }
+
+  /** Resolves once no scan is running (at once when none is). */
+  async idle(): Promise<void> {
+    while (this.#scanController !== null && this.#scanSettled !== null) {
+      await this.#scanSettled;
+    }
+  }
+
+  /**
+   * A signal for live refresh work on the session's last scan. It aborts when a scan
+   * starts, the scan root changes, or the session closes; until then every call returns
+   * the same one.
+   */
+  refreshSignal(): AbortSignal {
+    if (this.#refresh === null) {
+      this.#refresh = new AbortController();
+      if (this.#closed) this.#refresh.abort();
+    }
+    return this.#refresh.signal;
   }
 
   /**
@@ -272,6 +321,13 @@ export class Session {
       log: this.log,
     });
     if (this.#closed) throw cancelled();
+    this.replaceCheckout(updated);
+    return updated;
+  }
+
+  /** Keeps `updated` as the session's view of that checkout (live refresh, a new start). */
+  replaceCheckout(updated: ScannedCheckout): void {
+    if (this.#closed) return;
     for (const view of this.#views()) {
       if (view.checkouts.has(updated.checkout.path)) {
         view.checkouts.set(updated.checkout.path, updated);
@@ -285,7 +341,19 @@ export class Session {
         ),
       };
     }
-    return updated;
+  }
+
+  /**
+   * Makes `result` the session's last scan without scanning: live refresh found checkouts
+   * added or removed, or a new timeline. What leaves the scan is released, as after a scan.
+   */
+  adoptScan(result: ScanResult): void {
+    if (this.#closed || result.scanRoot !== this.#scanRoot) return;
+    const view: ScanView = {
+      folders: new Set(result.folders.map((folder) => join(result.scanRoot, folder.relativePath))),
+      checkouts: new Map(),
+    };
+    this.#complete(view, result);
   }
 
   /** Stops the scan, closes the port and releases everything the session holds. */
@@ -294,6 +362,8 @@ export class Session {
     this.#closed = true;
     this.#stopScan();
     this.#stopBackground();
+    this.#stopRefresh();
+    this.#services.live?.release(this);
     this.rpc.close();
     this.#releaseAll();
     this.#current = null;
@@ -344,6 +414,12 @@ export class Session {
   #stopBackground(): void {
     const controller = this.#background;
     this.#background = null;
+    controller?.abort();
+  }
+
+  #stopRefresh(): void {
+    const controller = this.#refresh;
+    this.#refresh = null;
     controller?.abort();
   }
 

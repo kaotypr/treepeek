@@ -17,7 +17,12 @@ import { delimiter } from "node:path";
  *   never are), or with no window when none scans. A disabled item is skipped and logged;
  *   `wait:<id>` instead waits for the item to be enabled by one of the window's later
  *   reports (a checkout selected and its review status read), then goes on with the rest.
- * - `TREEPEEK_E2E_GIT_OVERRIDE_ONLY` is read by the core service (`core/index.ts`).
+ * - `TREEPEEK_E2E_GIT_OVERRIDE_ONLY` and `TREEPEEK_E2E_WATCHER_FAULT` are read by the core
+ *   service (`core/index.ts`): discovery tries the override alone; the named watcher
+ *   backends fail every subscription.
+ * - The `test.powerResume` call (main) and the `test.liveRefresh` call (core service) answer
+ *   only in test runs too: the first acts as if the Mac woke from sleep; the second reports
+ *   the watcher backend, the subscriptions, memory and call counts, and can drop events.
  */
 export function testHooksEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
   return env.NODE_ENV === "test";

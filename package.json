@@ -22,7 +22,8 @@
     "package:dmg": "bun run build && electron-builder --mac dmg"
   },
   "trustedDependencies": [
-    "electron"
+    "electron",
+    "@parcel/watcher"
   ],
   "devDependencies": {
     "@base-ui/react": "1.9.0",
@@ -54,5 +55,8 @@
     "vite": "7.3.7",
     "vitest": "5.1.0",
     "zustand": "5.0.16"
+  },
+  "dependencies": {
+    "@parcel/watcher": "2.6.0"
   }
 }

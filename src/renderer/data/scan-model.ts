@@ -30,6 +30,12 @@ export interface ScanData {
   repositories: Repository[];
   problems: ScanProblem[];
   durationMs: number | null;
+  /**
+   * Checkouts live refresh reported removed while selected: they stay on screen, marked
+   * gone, until the person selects something else. Each maps to the folder nodes (by
+   * `relativePath`) kept for it after the folder tree no longer had them.
+   */
+  removed: Record<string, string[]>;
   /** Why the scan failed; `scanRoot` when the folder itself cannot be scanned. */
   error: { code: IpcErrorCode; message: string; scanRoot?: ScanRootProblem } | null;
 }
@@ -53,6 +59,7 @@ export function emptyScan(scanRoot: string): ScanData {
     repositories: [],
     problems: [],
     durationMs: null,
+    removed: {},
     error: null,
   };
 }

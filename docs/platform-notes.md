@@ -36,11 +36,9 @@ Things that made it work, or that the next person should know:
   `electron`, as the decision log asks, but there is nothing for it to allow today.
 - **Bun blocks esbuild's postinstall** (`bun pm untrusted`). It is harmless: esbuild finds
   its platform binary through its optional dependency.
-- **The app has no runtime `node_modules`.** Every package is a dev dependency and is
-  bundled into `out/` by electron-vite, so electron-builder's production-dependency
-  collection found nothing to copy. That path is therefore **not yet exercised under
-  Bun's hoisted layout**. Re-run this check when the first runtime dependency arrives
-  (`@parcel/watcher`, a native module, is expected in the live-refresh work).
+- **One runtime dependency: `@parcel/watcher`.** Every other package is a dev dependency
+  bundled into `out/` by electron-vite. Production-dependency collection under Bun's
+  hoisted layout works; see "Live refresh" below for what it packs.
 - The clean install reused Electron's download cache (`~/Library/Caches/electron`). A
   first-ever download on a new machine goes through the same `install-electron` step.
 
@@ -240,6 +238,81 @@ showed its file list in 11–14 ms; selecting one with nothing running took 23�
 measured from the test, over DevTools, so they include the protocol's round trips).
 Four more runs later the same day, with other work keeping the load average near 8.5:
 cold 722–1,209 ms, warm 385–828 ms, file lists 28–77 ms. Busy, still well under 5 s.
+
+## Live refresh: `@parcel/watcher` on FSEvents
+
+Confirmed on 2026-11-10 on the machine above (Apple M4, 16 GB, macOS 27.0), with
+`@parcel/watcher` 2.6.0 and Homebrew Git 2.55.0.
+
+**Packaging.** `@parcel/watcher` is the app's one runtime dependency (MIT; a native module
+with N-API prebuilds). electron-vite keeps it external, as a dynamic `import()` in
+`out/core/index.js`, which the core service loads on first use so that a module that will
+not load only costs the FSEvents backend (live refresh falls back to `fs.watch`). With Bun
+there is no dependency-tree command, so `bun run package` logs that electron-builder
+"utilizing file traversal collector"; it packs `@parcel/watcher`,
+`@parcel/watcher-darwin-arm64`, `detect-libc`, `is-glob`, `is-extglob`, `node-addon-api` and
+`picomatch` into `app.asar`, and unpacks `watcher.node` to
+`app.asar.unpacked/node_modules/@parcel/watcher-darwin-arm64/` (`asarUnpack: **/*.node`). It
+also logs the other platforms' optional prebuilds as missing, which is expected.
+`codesign --verify --strict dist/mac-arm64/Treepeek.app` exits 0.
+
+**FSEvents is the backend in the packaged app.** The core service names `@parcel/watcher`'s
+`fs-events` backend outright: left to choose, it prefers Watchman when that is installed.
+The test-only `test.liveRefresh` call reports the backend of every subscription, and
+`APP_TARGET=packaged bun run test:e2e` prints:
+
+```
+[packaged] live refresh backend: fsevents
+```
+
+**Timing.** From the moment a commit in a watched worktree returns to the moment both the
+selected checkout's counts and its timeline row show it, with a scan of 30 worktrees (the
+scan benchmark's fixture), in the packaged app, five commits per run. The budget is 1.5 s.
+
+| Run | Commit to screen           | Median |
+| --- | -------------------------- | ------ |
+| 1   | 500, 514, 526, 543, 544 ms | 526 ms |
+| 2   | 525, 530, 533, 533, 542 ms | 533 ms |
+
+The 400 ms quiet window of the debounce is most of it; the refresh itself (status, history
+counts, timeline) and the render take the rest. Measured with
+`TREEPEEK_PERF=1 APP_TARGET=packaged bun run test:e2e tests/e2e/live-refresh.perf.spec.ts`
+(results in `test-results/live-refresh-perf.json`), with the load average near 4.
+
+**Streams and memory.** One FSEvents stream per watched folder: the scan root, each
+repository's common dir (which carries every checkout's `HEAD`, `index` and `logs/HEAD`,
+since a linked worktree's git dir is `<common>/worktrees/<name>`), and each working tree.
+The core service's memory is its resident set after the scan has settled, compared with
+the same scan in a launch where every watcher backend is switched off
+(`TREEPEEK_E2E_WATCHER_FAULT=fsevents,fs.watch`); one sample each, so read the difference
+as a rough size.
+
+| Worktrees (repositories) | Streams | Core RSS watched | Core RSS unwatched | Open files, watched / not |
+| ------------------------ | ------- | ---------------- | ------------------ | ------------------------- |
+| 30 (3)                   | 34      | 104.5 MB         | 98.4 MB            | 129 / 128                 |
+| 100 (10)                 | 111     | 124.3 MB         | 116.3 MB           | 318 / 317                 |
+
+So watching costs about 6–8 MB and no file descriptor per stream (FSEvents talks to
+`fseventsd` over Mach ports). No stream was refused at 111.
+
+Facts the implementation rests on:
+
+- **FSEvents excludes at most 8 paths in the kernel** (`FSEventStreamSetExclusionPaths`); past
+  that it excludes none. `@parcel/watcher` passes its ignore paths there and filters
+  everything else itself, so a working tree's watch excludes `.git` and the first seven
+  skip-listed folders as paths and the rest as globs (`core/watch/targets.ts`).
+- **`@parcel/watcher` stops a stream itself when the watched folder is deleted**, on its
+  FSEvents thread and without the lock its `unsubscribe` takes. An unsubscribe of the same
+  stream at that moment can release it twice: a unit test run that deleted fixture folders
+  while unsubscribes were still running crashed its worker with SIGTRAP, "BUG IN CLIENT OF
+  LIBMALLOC: memory corruption of free block". Tests now stop every watcher before deleting
+  folders (`Harness.disposeAndWait`). In the app a removed worktree's watch is released only
+  after the debounced refresh that notices it (400 ms or more later), so the two do not
+  meet; a window closing at the very instant its worktree folder is deleted still could.
+  Not seen in the app.
+- **A folder must be unsubscribed even after it was deleted.** `@parcel/watcher` shares one
+  watcher per folder and ignore list, and does not start a new stream for a folder it
+  still holds, so a worktree recreated at the same path would never be watched again.
 
 ## Windows: vibrancy, folder drops and the test-only open hook
 

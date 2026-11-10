@@ -17,8 +17,9 @@ import { scanRootError } from "./session";
  * this `requestId`, or the session closing stops the scan; a stopped scan sends no
  * `scan.done`.
  *
- * After `scan.done`, identities Git no longer lists are pruned, and every checkout's review
- * status is computed in the background and sent as `review.changed`.
+ * After `scan.done`, identities Git no longer lists are pruned, live refresh watches what
+ * the scan found (in place of what the session's previous scan held), and every checkout's
+ * review status is computed in the background and sent as `review.changed`.
  */
 export function registerScanHandlers(session: Session, services: SessionServices): void {
   session.rpc.onCall(coreCalls["scan.start"], async (ctx, _request, signal) => {
@@ -56,6 +57,7 @@ export function registerScanHandlers(session: Session, services: SessionServices
         problems: result.problems,
       });
       prune(session, services, result);
+      void services.live?.watchScan(session);
       void scheduleStatusForScan(session, services, result.checkouts);
     });
     return ok({ scanRoot, folders: walked.folders, depthLimit: MAX_SCAN_DEPTH });

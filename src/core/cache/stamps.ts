@@ -3,9 +3,10 @@ import { join } from "node:path";
 import type { Memo } from "./memo";
 
 /**
- * Filesystem stamps for the mutable caches. Until live refresh watches repositories and
- * invalidates the caches itself, a scan compares a cheap stamp (file metadata, no git
- * process) with the one an entry was stored under, and forgets the entry when it changed.
+ * Filesystem stamps for the mutable caches. Live refresh invalidates the caches when it
+ * sees a change; a scan does not rely on it having seen every one, and compares a cheap
+ * stamp (file metadata, no git process) with the one an entry was stored under, forgetting
+ * the entry when it changed.
  */
 
 /** Forgets `memo`'s entry for `key` when `stamp` differs from the one it was stored under. */

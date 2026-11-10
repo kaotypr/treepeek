@@ -107,6 +107,7 @@ export function startScan(
         repositories: payload.repositories,
         problems: payload.problems,
         durationMs: payload.durationMs,
+        removed: {},
         error: null,
       };
     });
