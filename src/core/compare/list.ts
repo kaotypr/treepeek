@@ -119,17 +119,21 @@ async function filesOf(
   }
   const memo = ctx.repo.cache.comparisons(ctx.checkout.checkout.path);
   const leftKey = left.kind === "commit" ? left.oid : "empty";
+  // A list someone is waiting for does not wait for one background status started.
+  const urgency = { rank: ctx.priority === "low" ? -1 : 0 };
   if (kind === "working") {
     return memo.get(
       `working:${leftKey}`,
       (signal) => listWorking(left, { ...ctx, signal }),
       ctx.signal,
+      urgency,
     );
   }
   return memo.get(
     `review:${leftKey}`,
     (signal) => listReview(left, { ...ctx, signal }),
     ctx.signal,
+    urgency,
   );
 }
 

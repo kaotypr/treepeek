@@ -153,6 +153,39 @@ describe("Memo", () => {
     expect(await memo.get("k", async () => 2, live())).toBe(2);
   });
 
+  it("lets a more urgent caller start its own computation instead of waiting on background work", async () => {
+    const memo = new Memo<string, string>();
+    const background = deferred<string>();
+    const fromBackground = memo.get("k", () => background.promise, live(), { rank: -1 });
+    // An equally unhurried caller joins it.
+    let joined = 0;
+    const alsoBackground = memo.get(
+      "k",
+      async () => {
+        joined += 1;
+        return "never";
+      },
+      live(),
+      { rank: -1 },
+    );
+    const urgent = memo.get("k", async () => "urgent", live());
+    expect(await urgent).toBe("urgent");
+    expect(memo.peek("k")).toBe("urgent");
+    // The background computation still serves its own callers, but is not stored.
+    background.resolve("background");
+    expect(await fromBackground).toBe("background");
+    expect(await alsoBackground).toBe("background");
+    expect(joined).toBe(0);
+    expect(memo.peek("k")).toBe("urgent");
+    // A background caller joins an urgent computation in progress.
+    memo.delete("k");
+    const gate = deferred<string>();
+    const first = memo.get("k", () => gate.promise, live());
+    const late = memo.get("k", async () => "again", live(), { rank: -1 });
+    gate.resolve("first");
+    expect([await first, await late]).toEqual(["first", "first"]);
+  });
+
   it("keeps at most maxEntries results", async () => {
     const memo = new Memo<number, number>(3);
     for (let key = 0; key < 5; key += 1) await memo.get(key, async () => key * 10, live());
