@@ -11,6 +11,7 @@ import type {
 } from "../../../src/shared/domain/compare";
 import type { FileDiff } from "../../../src/shared/domain/diff";
 import type { GitState } from "../../../src/shared/domain/git";
+import type { ReviewStatus } from "../../../src/shared/domain/review";
 import type {
   Checkout,
   FolderNode,
@@ -36,6 +37,8 @@ import {
   type FolderNodeSchema,
   type GitStateSchema,
   IPC_ERROR_CODES,
+  MAX_MARK_PATHS,
+  MAX_STATUS_CHECKOUTS,
   MAX_VALIDATE_PATHS,
   MainToCoreSchema,
   mainCalls,
@@ -45,6 +48,7 @@ import {
   parseRequest,
   type RepositorySchema,
   type Result,
+  type ReviewStatusSchema,
   type ScanProblemSchema,
   type TimelineEntrySchema,
 } from "../../../src/shared/ipc";
@@ -245,7 +249,7 @@ describe("contract", () => {
         state: { found: false, problem: "xcodeMissing" },
       }).success,
     ).toBe(true);
-    expect(CONTRACT_VERSION).toBe(7);
+    expect(CONTRACT_VERSION).toBe(8);
   });
 
   it("carries paths.validate between main and core, bounded", () => {
@@ -303,6 +307,8 @@ describe("contract", () => {
       path: "src/a b.ts",
     };
     expect(parseRequest(diff, good).ok).toBe(true);
+    // "Since you viewed" is one file's comparison, asked for through diff.file.
+    expect(parseRequest(diff, { ...good, comparison: { kind: "sinceViewed" } }).ok).toBe(true);
     expect(
       parseRequest(diff, {
         ...good,
@@ -323,7 +329,6 @@ describe("contract", () => {
       { ...good, path: "" },
       { ...good, path: "p".repeat(4097) },
       { ...good, category: "ignored" },
-      { ...good, comparison: { kind: "sinceViewed" } },
       { ...good, comparison: { kind: "base", ref: "a".repeat(201) } },
       // Sides, commit and blob ids are never taken from the renderer.
       { ...good, comparison: { kind: "review", left: { kind: "empty" } } },
@@ -367,6 +372,74 @@ describe("contract", () => {
     expect(
       v.safeParse(diff.response, { ...fileDiff, stats: { added: -1, removed: 0 } }).success,
     ).toBe(false);
+  });
+
+  it("validates the review channels strictly and bounds what the renderer sends", () => {
+    const status = coreCalls["review.status"];
+    expect(parseRequest(status, { checkoutPaths: ["/x"] }).ok).toBe(true);
+    for (const bad of [
+      { checkoutPaths: [] },
+      { checkoutPaths: [""] },
+      { checkoutPaths: Array.from({ length: MAX_STATUS_CHECKOUTS + 1 }, (_, i) => `/c${i}`) },
+      { checkoutPaths: ["/x"], extra: 1 },
+    ]) {
+      expect(parseRequest(status, bad).ok, JSON.stringify(bad).slice(0, 80)).toBe(false);
+    }
+    const mark = coreCalls["review.mark"];
+    const good = { checkoutPath: "/x", paths: ["a.txt"], viewed: true };
+    expect(parseRequest(mark, good).ok).toBe(true);
+    expect(parseRequest(mark, { ...good, resultHashes: ["a".repeat(40)] }).ok).toBe(true);
+    for (const bad of [
+      { ...good, paths: [] },
+      { ...good, paths: [""] },
+      { ...good, viewed: "yes" },
+      { ...good, resultHashes: [] },
+      { ...good, resultHashes: ["a".repeat(201)] },
+      { ...good, worktreeId: "w" },
+      { ...good, paths: Array.from({ length: MAX_MARK_PATHS + 1 }, (_, i) => `p${i}`) },
+    ]) {
+      expect(parseRequest(mark, bad).ok, JSON.stringify(bad).slice(0, 80)).toBe(false);
+    }
+    const all = coreCalls["review.markAll"];
+    expect(parseRequest(all, { checkoutPath: "/x", viewed: false }).ok).toBe(true);
+    expect(parseRequest(all, { checkoutPath: "/x" }).ok).toBe(false);
+    expect(parseRequest(coreCalls["review.storeUsage"], {}).ok).toBe(true);
+    expect(parseRequest(coreCalls["review.clearAll"], { all: true }).ok).toBe(false);
+
+    const reviewStatus: ReviewStatus = {
+      checkoutPath: "/x",
+      worktreeId: "w",
+      total: 2,
+      viewed: 1,
+      changedSinceViewed: 1,
+      partialScope: false,
+      files: [
+        { path: "a.txt", state: "viewed" },
+        {
+          path: "b.txt",
+          state: "changedSinceViewed",
+          viewedHash: "a".repeat(40),
+          earlierAvailable: true,
+        },
+      ],
+    };
+    expect(v.safeParse(mark.response, reviewStatus).success).toBe(true);
+    expect(v.safeParse(coreEvents["review.changed"].payload, reviewStatus).success).toBe(true);
+    expect(
+      v.safeParse(mark.response, { ...reviewStatus, files: [{ path: "a", state: "seen" }] })
+        .success,
+    ).toBe(false);
+    expect(
+      v.safeParse(all.response, {
+        status: reviewStatus,
+        previous: [
+          { path: "a.txt", resultHash: null },
+          { path: "b.txt", resultHash: "b".repeat(40) },
+        ],
+      }).success,
+    ).toBe(true);
+    expect(coreEvents["review.changed"].sticky).toBe(false);
+    expectTypeOf<v.InferOutput<typeof ReviewStatusSchema>>().toEqualTypeOf<ReviewStatus>();
   });
 
   it("validates comparison.list requests strictly and bounds the refs", () => {
