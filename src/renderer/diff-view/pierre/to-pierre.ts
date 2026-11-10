@@ -4,8 +4,9 @@
  * library parses next to the full texts. Both views therefore show git's diff.
  */
 
-import { type FileDiffMetadata, processFile } from "@pierre/diffs";
+import { type FileDiffMetadata, getFiletypeFromFileName, processFile } from "@pierre/diffs";
 import type { FileDiff, Hunk } from "../../../shared/domain/diff";
+import { isExcludedGrammar } from "../highlight/excluded-assets";
 
 const MARKER = { context: " ", add: "+", remove: "-", noNewline: "\\ " } as const;
 
@@ -115,9 +116,17 @@ function finish(metadata: FileDiffMetadata, diff: FileDiff): FileDiffMetadata {
         : diff.oldPath !== undefined && diff.oldPath !== diff.path
           ? "rename-changed"
           : "change";
-  // Past the highlighting limit the text stays plain (diff colors only).
-  if (diff.limits.highlightOff) metadata.lang = "text";
+  // Past the highlighting limit the text stays plain (diff colors only), and so does a
+  // language whose grammar the app does not ship: asking the highlighter for it would fail.
+  if (diff.limits.highlightOff || needsExcludedGrammar(diff)) metadata.lang = "text";
   return metadata;
+}
+
+/** Whether either side's file name maps to a grammar left out of the app. */
+function needsExcludedGrammar(diff: FileDiff): boolean {
+  return [diff.oldPath ?? diff.path, diff.path].some((path) =>
+    isExcludedGrammar(getFiletypeFromFileName(path)),
+  );
 }
 
 /** Lines with their line endings, as the library splits file contents. */

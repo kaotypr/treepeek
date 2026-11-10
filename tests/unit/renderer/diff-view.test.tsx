@@ -102,6 +102,24 @@ describe("toPierreDiff", () => {
     expect(toPierreDiff(diff, "diff")?.lang).toBeUndefined();
   });
 
+  it.each([
+    ["server.conf", undefined],
+    ["src/main.adb", undefined],
+    ["shaders/light.glsl", undefined],
+    ["src/old.rkt", "src/new.ts"],
+    ["src/new.ts", "src/old.tcl"],
+  ])("shows %s as plain text: the app does not ship its grammar", (path, oldPath) => {
+    const diff = fixture("small-edit");
+    const renamed = oldPath === undefined ? { ...diff, path } : { ...diff, path, oldPath };
+    expect(toPierreDiff(renamed, "diff")?.lang).toBe("text");
+    expect(toPierreDiff(renamed, "result")?.lang).toBe("text");
+  });
+
+  it("leaves a language the app ships to the highlighter", () => {
+    const diff = { ...fixture("small-edit"), path: "src/app.ts" };
+    expect(toPierreDiff(diff, "diff")?.lang).toBeUndefined();
+  });
+
   it.each([...FIXTURES].filter(([, diff]) => withText(diff) && diff.status !== "deleted"))(
     "%s: the resulting-file model is the right side with only its added lines marked",
     (_name, diff) => {

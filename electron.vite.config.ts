@@ -3,8 +3,53 @@ import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "electron-vite";
 import type { Plugin } from "vite";
+import {
+  EXCLUDED_GRAMMARS,
+  EXCLUDED_THEMES,
+} from "./src/renderer/diff-view/highlight/excluded-assets";
 
 const root = import.meta.dirname;
+
+/** The id every import of an excluded grammar or theme resolves to. */
+const EXCLUDED_ASSET_MODULE = "\0treepeek:excluded-shiki-asset";
+
+/**
+ * Leaves the grammars and themes in `excluded-assets.ts` out of the app. `@pierre/diffs`
+ * loads Shiki's full catalog, which imports each one by name (`@shikijs/langs/ada`), and some
+ * grammars import others they embed (`./glsl.mjs` from `cpp.mjs`). Whatever the import, a
+ * module that resolves to an excluded file becomes one shared empty module: an embedding
+ * grammar just loses that embedded language, and the renderer shows the excluded languages
+ * as plain text without asking for them (`pierre/to-pierre.ts`).
+ */
+function excludeShikiAssets(): Plugin {
+  const excluded = new Set([
+    ...EXCLUDED_GRAMMARS.map(({ name }) => `@shikijs/langs/dist/${name}.mjs`),
+    ...EXCLUDED_THEMES.map(({ name }) => `@shikijs/themes/dist/${name}.mjs`),
+  ]);
+  // `.../node_modules/@shikijs/langs/dist/ada.mjs` → `@shikijs/langs/dist/ada.mjs`
+  const shikiModule =
+    /[\\/]node_modules[\\/](@shikijs[\\/](?:langs|themes)[\\/]dist[\\/][^\\/]+\.mjs)$/;
+  const isExcluded = (id: string) => {
+    const match = shikiModule.exec(id.split("?")[0] ?? "");
+    return match?.[1] !== undefined && excluded.has(match[1].replaceAll("\\", "/"));
+  };
+  return {
+    name: "treepeek:exclude-shiki-assets",
+    enforce: "pre",
+    async resolveId(source, importer, options) {
+      const shikiImport =
+        /^@shikijs\/(langs|themes)\//.test(source) ||
+        (source.startsWith("./") && /[\\/]@shikijs[\\/](langs|themes)[\\/]/.test(importer ?? ""));
+      if (!shikiImport) return null;
+      const resolved = await this.resolve(source, importer, { ...options, skipSelf: true });
+      return resolved && isExcluded(resolved.id) ? EXCLUDED_ASSET_MODULE : null;
+    },
+    load(id) {
+      // An empty grammar list: spread into an embedding grammar's list, it adds nothing.
+      return id === EXCLUDED_ASSET_MODULE ? "export default [];" : null;
+    },
+  };
+}
 
 /**
  * `bun run dev` only: the dev server injects React Refresh's inline preamble and HMR
@@ -70,9 +115,9 @@ export default defineConfig(({ mode }) => {
       resolve: {
         alias: { "@renderer": resolve(root, "src/renderer") },
       },
-      plugins: [react(), tailwindcss(), devServerCsp()],
+      plugins: [react(), tailwindcss(), devServerCsp(), excludeShikiAssets()],
       // The highlight worker is a module worker that splits its grammars into chunks.
-      worker: { format: "es" },
+      worker: { format: "es", plugins: () => [excludeShikiAssets()] },
       build: {
         outDir: resolve(out, "renderer"),
         minify: "esbuild",
