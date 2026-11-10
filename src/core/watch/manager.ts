@@ -80,6 +80,8 @@ export class WatchManager {
   readonly #now: () => number;
   readonly #scans = new Map<number, WatchedScan>();
   readonly #subscriptions = new Map<string, Subscription>();
+  /** Watches being stopped, so `dispose` can wait for every one of them. */
+  readonly #closing = new Set<Promise<void>>();
   readonly #debouncer: CheckoutDebouncer<Gathered>;
   readonly #storm: StormGuard;
   #index: WatchIndex = buildWatchIndex([]);
@@ -202,14 +204,18 @@ export class WatchManager {
     this.#suspended = suspended;
   }
 
-  /** Stops every watcher (the core service shutting down). */
+  /**
+   * Stops every watcher (the core service shutting down) and resolves once each one has,
+   * including those a release had started to stop.
+   */
   async dispose(): Promise<void> {
     this.#disposed = true;
     this.#debouncer.dispose();
     const subscriptions = [...this.#subscriptions.values()];
     this.#subscriptions.clear();
     this.#scans.clear();
-    await Promise.all(subscriptions.map((subscription) => this.#close(subscription)));
+    for (const subscription of subscriptions) void this.#close(subscription);
+    while (this.#closing.size > 0) await Promise.all([...this.#closing]);
   }
 
   #acquire(key: string, target: WatchTarget, holder: number): Promise<void> {
@@ -277,17 +283,25 @@ export class WatchManager {
     if (wasUnavailable) this.#onPausedChange();
   }
 
-  async #close(subscription: Subscription): Promise<void> {
+  #close(subscription: Subscription): Promise<void> {
     subscription.closed = true;
-    await subscription.ready;
-    const handle = subscription.handle;
-    subscription.handle = null;
-    if (!handle) return;
-    try {
-      await handle.close();
-    } catch (error) {
-      this.#log.warn("could not stop watching a folder", { path: subscription.target.path, error });
-    }
+    const closing = (async () => {
+      await subscription.ready;
+      const handle = subscription.handle;
+      subscription.handle = null;
+      if (!handle) return;
+      try {
+        await handle.close();
+      } catch (error) {
+        this.#log.warn("could not stop watching a folder", {
+          path: subscription.target.path,
+          error,
+        });
+      }
+    })();
+    this.#closing.add(closing);
+    void closing.finally(() => this.#closing.delete(closing));
+    return closing;
   }
 
   /** Storm state of checkouts no scan watches any more is forgotten. */
