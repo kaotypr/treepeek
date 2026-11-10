@@ -14,11 +14,12 @@ export function viewMenu(
   packaged: boolean,
   extra: readonly MenuItemConstructorOptions[] = [],
 ): MenuItemConstructorOptions {
+  // ⌘R is the window's Refresh (rescan), so the development reloads move off it.
   const development: MenuItemConstructorOptions[] = packaged
     ? []
     : [
-        { role: "reload" },
-        { role: "forceReload" },
+        { role: "reload", accelerator: "Alt+CmdOrCtrl+R" },
+        { role: "forceReload", accelerator: "Alt+Shift+CmdOrCtrl+R" },
         { role: "toggleDevTools" },
         ...extra,
         { type: "separator" },
@@ -51,11 +52,58 @@ export function diffLabMenuItem(): MenuItemConstructorOptions {
   };
 }
 
+export interface FileMenuActions {
+  /** Shows the folder dialog, attached to `win` when a window is focused. */
+  openFolder: (win: BrowserWindow | null) => void;
+  /** Newest first. */
+  recentFolders: readonly string[];
+  openRecent: (path: string) => void;
+  clearRecent: () => void;
+}
+
+/**
+ * File › Open Folder… (⌘O), Open Recent ▸ and Close Window. The rest of the menu bar
+ * (View, Go, Checkout) arrives with the desktop integration.
+ */
+export function fileMenu(actions: FileMenuActions): MenuItemConstructorOptions {
+  const recent: MenuItemConstructorOptions[] = actions.recentFolders.map((path) => ({
+    label: path,
+    click: () => actions.openRecent(path),
+  }));
+  return {
+    label: "File",
+    submenu: [
+      {
+        id: "open-folder",
+        label: "Open Folder…",
+        accelerator: "CmdOrCtrl+O",
+        click: (_item, win) => actions.openFolder(win instanceof BrowserWindow ? win : null),
+      },
+      {
+        id: "open-recent",
+        label: "Open Recent",
+        submenu: [
+          ...recent,
+          ...(recent.length > 0 ? [{ type: "separator" } as const] : []),
+          {
+            id: "clear-recent",
+            label: "Clear Menu",
+            enabled: recent.length > 0,
+            click: () => actions.clearRecent(),
+          },
+        ],
+      },
+      { type: "separator" },
+      { role: "close" },
+    ],
+  };
+}
+
 /** The native menu: standard roles, plus development items outside the packaged app. */
-export function buildMenu(): Menu {
+export function buildMenu(actions: FileMenuActions): Menu {
   const template: MenuItemConstructorOptions[] = [
     { role: "appMenu" },
-    { role: "fileMenu" },
+    fileMenu(actions),
     { role: "editMenu" },
     viewMenu(app.isPackaged, LAB_BUILD ? [diffLabMenuItem()] : []),
     { role: "windowMenu" },

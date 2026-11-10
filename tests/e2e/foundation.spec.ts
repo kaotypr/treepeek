@@ -32,8 +32,14 @@ function gitOnPath(): string {
   throw new Error("The end-to-end tests need git on the PATH");
 }
 
+/** The welcome window is up and the core service answers. */
 async function waitForReady(page: Page): Promise<void> {
-  await expect(page.getByText(/Answering \(process \d+\)/)).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByTestId("welcome")).toBeVisible({ timeout: 15_000 });
+  await waitFor(
+    async () => (await page.evaluate(() => window.treepeek.core.app.ping())).ok,
+    15_000,
+    "the core service",
+  );
 }
 
 test.describe(`foundation (${target})`, () => {
@@ -50,11 +56,12 @@ test.describe(`foundation (${target})`, () => {
     await app?.close();
   });
 
-  test("opens a window served from app://", async () => {
+  test("opens the welcome window, served from app://, when there is nothing to restore", async () => {
     const { page } = app;
     expect(page.url()).toBe("app://treepeek/index.html");
     await expect(page).toHaveTitle("Treepeek");
     await expect(page.getByRole("heading", { name: "Treepeek" })).toBeVisible();
+    await expect(page.getByRole("button", { name: /Open Folder/ })).toBeVisible();
   });
 
   test("test runs keep the window in the background without focus", async () => {
@@ -64,7 +71,7 @@ test.describe(`foundation (${target})`, () => {
     // ...yet main sees it transparent and unfocused. `document.hasFocus()` cannot tell:
     // Playwright emulates focus for every page it attaches to.
     expect(app.log("main")).toContain(
-      'window shown in background mode {"focused":false,"opacity":0}',
+      'window shown in background mode {"focused":false,"opacity":0,"scanRoot":null}',
     );
   });
 
@@ -92,6 +99,8 @@ test.describe(`foundation (${target})`, () => {
         main: keys(api.main ?? {}),
         mainApp: keys(api.main?.app ?? {}),
         mainSettings: keys(api.main?.settings ?? {}),
+        mainFolder: keys(api.main?.folder ?? {}),
+        mainWindow: keys(api.main?.window ?? {}),
         core: keys(api.core ?? {}),
         coreApp: keys(api.core?.app ?? {}),
         coreRequest: keys(api.core?.request ?? {}),
@@ -103,9 +112,11 @@ test.describe(`foundation (${target})`, () => {
     });
     expect(shape.frozen).toEqual([true, true, true, true, true]);
     expect(shape.top).toEqual(["core", "main", "off", "on"]);
-    expect(shape.main).toEqual(["app", "settings"]);
+    expect(shape.main).toEqual(["app", "folder", "settings", "window"]);
     expect(shape.mainApp).toEqual(["ping"]);
     expect(shape.mainSettings).toEqual(["get", "set"]);
+    expect(shape.mainFolder).toEqual(["choose", "open", "openRecent"]);
+    expect(shape.mainWindow).toEqual(["state"]);
     expect(shape.core).toEqual([
       "app",
       "comparison",
@@ -210,6 +221,31 @@ test.describe(`foundation (${target})`, () => {
     }));
     expect(result.main).toMatchObject({ ok: false, error: { code: "invalidRequest" } });
     expect(result.core).toMatchObject({ ok: false, error: { code: "invalidRequest" } });
+  });
+
+  test("the page cannot name recent folders, save a layout for the welcome window, or open a non-folder", async () => {
+    const result = await app.page.evaluate(async () => ({
+      recent: await window.treepeek.main.settings.set({ recentFolders: ["/etc"] } as never),
+      openRecent: await window.treepeek.main.folder.openRecent({ path: "/etc" }),
+      open: await window.treepeek.main.folder.open({ path: "/etc/hosts" }),
+      state: await window.treepeek.main.window.state({
+        ui: {
+          timelineOpen: true,
+          navigatorMode: "tree",
+          timelineGrouping: "all",
+          timelineOrder: "oldest",
+          previewMode: "split",
+          timelineWidth: null,
+          navigatorWidth: null,
+          selectedCheckout: null,
+        },
+      }),
+    }));
+    expect(result.recent).toMatchObject({ ok: false, error: { code: "invalidRequest" } });
+    expect(result.openRecent).toMatchObject({ ok: false, error: { code: "invalidRequest" } });
+    expect(result.open).toMatchObject({ ok: false, error: { code: "invalidRequest" } });
+    expect(result.state).toMatchObject({ ok: false, error: { code: "invalidRequest" } });
+    expect(app.pages()).toHaveLength(1);
   });
 
   test("git.state reports the git the core service found, and the renderer cannot change it", async () => {
@@ -430,7 +466,7 @@ test.describe(`launch behaviour (${target})`, () => {
     const second = await launchApp({ userDataDir });
     try {
       const settings = await second.page.evaluate(() => window.treepeek.main.settings.get());
-      expect(settings).toEqual({ ok: true, value: { appearance: "light", gitPath: null } });
+      expect(settings).toMatchObject({ ok: true, value: { appearance: "light", gitPath: null } });
       await expect
         .poll(() => second.page.evaluate(() => document.documentElement.classList.contains("dark")))
         .toBe(false);

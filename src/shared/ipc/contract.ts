@@ -1,7 +1,12 @@
 import * as v from "valibot";
 import { LISTABLE_COMPARISON_KINDS } from "../domain/compare";
 import { GIT_PROBLEMS } from "../domain/git";
-import { AppearanceSchema, SettingsPatchSchema, SettingsSchema } from "../settings";
+import {
+  AppearanceSchema,
+  SettingsPatchSchema,
+  SettingsSchema,
+  WindowUiStateSchema,
+} from "../settings";
 import { type CallMap, defineCall, defineEvent, type EventMap } from "./define";
 import {
   CheckoutSchema,
@@ -20,7 +25,7 @@ import {
  * Bumped whenever a channel's shape changes. Main, the core service and every window come
  * from one build, so a mismatch means something is badly wrong; it is still checked.
  */
-export const CONTRACT_VERSION = 5;
+export const CONTRACT_VERSION = 6;
 
 const Empty = v.strictObject({});
 
@@ -64,9 +69,56 @@ export const mainCalls = {
     request: SettingsPatchSchema,
     response: SettingsSchema,
   }),
+  /**
+   * Shows the native folder dialog attached to the calling window. A chosen folder opens in
+   * its own window, or focuses the window already showing it; `null` when cancelled.
+   */
+  "folder.choose": defineCall({
+    name: "folder.choose",
+    request: Empty,
+    response: v.nullable(v.object({ path: v.string() })),
+  }),
+  /**
+   * Opens one of the recent folders (`settings.recentFolders`). A path that is not on that
+   * list fails `invalidRequest`; one that no longer exists is dropped from it.
+   */
+  "folder.openRecent": defineCall({
+    name: "folder.openRecent",
+    request: v.strictObject({ path: PathSchema }),
+    response: v.object({}),
+  }),
+  /**
+   * Opens a folder dropped on a window (the preload reads the dropped file's path). Opening
+   * a folder only scans it, which `session.open` allows for any folder already; anything
+   * that is not an existing folder fails `invalidRequest`.
+   */
+  "folder.open": defineCall({
+    name: "folder.open",
+    request: v.strictObject({ path: PathSchema }),
+    response: v.object({}),
+  }),
+  /** Saves the calling scan window's layout and view, restored with the window on launch. */
+  "window.state": defineCall({
+    name: "window.state",
+    request: v.strictObject({ ui: WindowUiStateSchema }),
+    response: v.object({}),
+  }),
 } as const satisfies CallMap;
 
 export const mainEvents = {
+  /**
+   * What this window shows: a scan root (a scan window) or `null` (the welcome window),
+   * the layout it saved last time, and whether the side panels sit on vibrancy.
+   */
+  "window.scanRoot": defineEvent({
+    name: "window.scanRoot",
+    payload: v.object({
+      scanRoot: v.nullable(v.string()),
+      ui: v.nullable(WindowUiStateSchema),
+      vibrancy: v.boolean(),
+    }),
+    sticky: true,
+  }),
   "theme.changed": defineEvent({
     name: "theme.changed",
     payload: v.object({ resolved: v.picklist(["light", "dark"]), source: AppearanceSchema }),

@@ -23,6 +23,7 @@ the same pull request and say why.
 | End-to-end tests (needs `bun run build` and `bun run build:lab`) | `bun run test:e2e`                                                    |
 | Watch an end-to-end run (windows shown normally)                 | `TREEPEEK_E2E_SHOW=1 bun run test:e2e`                                |
 | Diff viewer performance (local machine only)                     | `TREEPEEK_PERF=1 bun run test:e2e tests/e2e/diff-lab.perf.spec.ts`    |
+| File list performance, 5,000 files (local machine only)          | `TREEPEEK_PERF=1 bun run test:e2e tests/e2e/file-list.perf.spec.ts`   |
 | Package an unsigned arm64 app                                    | `bun run package`                                                     |
 | End-to-end tests against the package                             | `APP_TARGET=packaged bun run test:e2e`                                |
 | Prototype parity check (local only)                              | `TREEPEEK_PROTOTYPE=<prototype checkout> bun scripts/parity-check.ts` |
@@ -70,6 +71,9 @@ the code to the process that owns it.
 | IPC contract (every channel), error codes                                   | `src/shared/ipc/contract.ts`, `src/shared/ipc/result.ts`                        |
 | Main ↔ core and port message schemas                                        | `src/shared/ipc/messages.ts`                                                    |
 | Window creation and navigation guards                                       | `src/main/windows.ts` (`createWindow`, `guardWebContents`)                      |
+| One window per folder, the welcome window, restoring windows and layouts    | `src/main/app-windows.ts` (`AppWindows`)                                        |
+| Opening folders: dialog, Open Recent, drops on a window or the Dock         | `src/main/folders.ts`; the preload reads a dropped folder's path                |
+| Native menu (File › Open Folder…, Open Recent)                              | `src/main/menu.ts`                                                              |
 | `app://` protocol and the CSP                                               | `src/main/protocol.ts`, plus the meta tag in `src/renderer/index.html`          |
 | Trusted-sender check, permissions, startup                                  | `src/main/index.ts`                                                             |
 | Main call routing and validation                                            | `src/main/router.ts`, `src/main/ipc.ts` (`handleMain`)                          |
@@ -94,6 +98,12 @@ the code to the process that owns it.
 | Domain types                                                                | `src/shared/domain/`                                                            |
 | Unified-patch parser                                                        | `src/shared/diff/parse-patch.ts`                                                |
 | Diff viewer (`DiffView`, the `@pierre/diffs` adapter, the highlight worker) | `src/renderer/diff-view/`; why this library: `docs/decisions/diff-viewer.md`    |
+| Review screen: window shell, welcome window                                 | `src/renderer/app/` (`ScanWindow.tsx`), `src/renderer/screens/welcome/`         |
+| Review screen panels: toolbar, navigator, preview, timeline                 | `src/renderer/panels/`                                                          |
+| Core data in the renderer: IPC client, query keys, the scan stream, hooks   | `src/renderer/data/` (`keys.ts`, `scan-stream.ts`, `hooks/`)                    |
+| UI state (selection, comparison, layout), saved per window                  | `src/renderer/state/ui-store.ts`                                                |
+| Commands and in-window shortcuts                                            | `src/renderer/commands/` (`registry.ts`, `keymap.ts`)                           |
+| Comparison labels and hints                                                 | `src/shared/domain/comparison-hints.ts`                                         |
 | Diff lab (development only; never in `bun run build`)                       | `src/renderer/dev/diff-lab/`, fixtures from `scripts/make-diff-fixtures.ts`     |
 | Size limits, scan depth, git concurrency                                    | `src/shared/constants.ts`                                                       |
 | Color tokens (light and dark)                                               | `src/renderer/styles/tokens.css`, window background in `src/shared/theme.ts`    |
@@ -184,6 +194,13 @@ These carry Electron's security checklist into this codebase. Breaking one is a 
 - Comments say why, not what. English everywhere: code, comments, tests, commit messages.
 - UI uses the color tokens, never hard-coded colors, and must work in both themes at WCAG
   AA contrast. Prefer the Base UI components in `src/renderer/components/ui`.
+- Every window action is a command (`renderer/commands/registry.ts`), and shortcuts map key
+  presses to command ids (`keymap.ts`). Do not add key handlers that act on their own: the
+  native menu runs the same commands, so a key and a menu item can never disagree. Lists
+  and trees handle their own arrow keys.
+- Core data reaches components through TanStack Query (`renderer/data/`), keyed by
+  `keys.ts`; UI choices live in the Zustand store. A key that live refresh will need to
+  invalidate is built in `keys.ts`, never inline.
 - A new runtime dependency (`dependencies`, not `devDependencies`) changes what gets
   packaged: justify it, check its license is compatible with Apache-2.0, and re-run the
   packaging checks. Native modules must be unpacked from asar.
@@ -195,7 +212,9 @@ These carry Electron's security checklist into this codebase. Breaking one is a 
 - Anything that reads git output is tested against a real temporary repository made with
   `tests/support/git.ts`. Never mock git.
 - End-to-end tests live in `tests/e2e` and drive the app over the DevTools protocol
-  (`tests/e2e/support/app.ts`), against the built app or the package. A change to a
+  (`tests/e2e/support/app.ts`), against the built app or the package. `launchWithFolder`
+  opens fixture folders without the folder dialog (the `TREEPEEK_E2E_OPEN` hook, honoured
+  only with `NODE_ENV=test`); `tests/e2e/support/review.ts` drives the review screen. A change to a
   security rule, the protocol, the preload or the window setup needs an end-to-end test.
 - End-to-end runs use background mode by default (`TREEPEEK_E2E_BACKGROUND`, set by the
   launcher): windows are transparent, click-through and never focused, and the app has no

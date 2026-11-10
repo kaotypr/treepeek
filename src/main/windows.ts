@@ -1,12 +1,40 @@
-import { BrowserWindow } from "electron";
-import type { ResolvedTheme } from "../shared/settings";
+import { BrowserWindow, screen } from "electron";
+import type { ResolvedTheme, WindowBounds } from "../shared/settings";
 import { WINDOW_BACKGROUND } from "../shared/theme";
 
 export interface CreateWindowOptions {
   theme: ResolvedTheme;
   preload: string;
   url: string;
+  /** Window title (the Window menu and Mission Control); the hidden title bar never shows it. */
+  title?: string;
+  /** Where to put the window; centred at the default size otherwise. */
+  bounds?: WindowBounds | null;
+  /** The size used without `bounds`, and the minimum; the scan window's when absent. */
+  size?: { width: number; height: number; minWidth: number; minHeight: number };
+  /**
+   * The macOS `sidebar` material behind the window. The page then paints its own opaque
+   * surfaces and leaves the side panels translucent; the window background is clear, so the
+   * material (which follows the appearance) is what shows before the first frame.
+   */
+  vibrancy?: boolean;
 }
+
+/** A scan window's default size and minimum. */
+export const SCAN_WINDOW_SIZE = Object.freeze({
+  width: 1280,
+  height: 820,
+  minWidth: 880,
+  minHeight: 560,
+});
+
+/** The welcome window's default size and minimum. */
+export const WELCOME_WINDOW_SIZE = Object.freeze({
+  width: 720,
+  height: 500,
+  minWidth: 560,
+  minHeight: 420,
+});
 
 /** The argument the preload reads to set the theme class before anything renders. */
 export const THEME_ARGUMENT = "--treepeek-theme=";
@@ -29,16 +57,22 @@ export function inBackgroundMode(env: NodeJS.ProcessEnv = process.env): boolean 
  */
 export function createWindow(options: CreateWindowOptions): BrowserWindow {
   const background = inBackgroundMode();
+  const size = options.size ?? SCAN_WINDOW_SIZE;
+  const bounds = options.bounds ? visibleBounds(options.bounds) : null;
   const win = new BrowserWindow({
-    width: 1280,
-    height: 820,
-    minWidth: 880,
-    minHeight: 560,
+    width: bounds?.width ?? size.width,
+    height: bounds?.height ?? size.height,
+    ...(bounds && bounds.x !== undefined ? { x: bounds.x, y: bounds.y } : {}),
+    minWidth: size.minWidth,
+    minHeight: size.minHeight,
     show: false,
     opacity: background ? 0 : 1,
-    title: "Treepeek",
+    title: options.title ?? "Treepeek",
     titleBarStyle: "hiddenInset",
-    backgroundColor: WINDOW_BACKGROUND[options.theme],
+    backgroundColor: options.vibrancy ? "#00000000" : WINDOW_BACKGROUND[options.theme],
+    ...(options.vibrancy
+      ? { vibrancy: "sidebar" as const, visualEffectState: "followWindow" as const }
+      : {}),
     webPreferences: {
       preload: options.preload,
       contextIsolation: true,
@@ -67,6 +101,27 @@ export function createWindow(options: CreateWindowOptions): BrowserWindow {
   });
   void win.loadURL(options.url);
   return win;
+}
+
+/**
+ * Saved bounds, kept only where they still land on a connected display. A window saved on
+ * a monitor that has since been unplugged keeps its size and is placed by macOS instead.
+ */
+function visibleBounds(saved: WindowBounds): {
+  width: number;
+  height: number;
+  x?: number;
+  y?: number;
+} {
+  const onScreen = screen.getAllDisplays().some(({ workArea }) => {
+    const width =
+      Math.min(saved.x + saved.width, workArea.x + workArea.width) - Math.max(saved.x, workArea.x);
+    const height =
+      Math.min(saved.y + saved.height, workArea.y + workArea.height) -
+      Math.max(saved.y, workArea.y);
+    return width >= 80 && height >= 40;
+  });
+  return onScreen ? saved : { width: saved.width, height: saved.height };
 }
 
 /** No web contents may open windows, navigate away, or attach a webview. */

@@ -2,7 +2,7 @@ import { type ChildProcess, spawn } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { delimiter, join, resolve } from "node:path";
 import { type Browser, chromium, type Page } from "@playwright/test";
 
 /**
@@ -62,11 +62,21 @@ export interface LaunchOptions {
   settings?: Record<string, unknown>;
   /** `lab` runs the lab build (`out-lab/`) instead of the app. Default `app`. */
   build?: "app" | "lab";
+  /**
+   * Folders to open at launch through the test-only `TREEPEEK_E2E_OPEN` hook (honoured only
+   * with `NODE_ENV=test`), instead of the native folder dialog.
+   */
+  open?: readonly string[];
 }
 
 export interface App {
   browser: Browser;
+  /** The first Treepeek window that appeared. */
   page: Page;
+  /** Every Treepeek window open now. */
+  pages(): Page[];
+  /** Waits for a Treepeek window whose page satisfies `match`. */
+  waitForPage(match: (page: Page) => Promise<boolean>, what: string): Promise<Page>;
   process: ChildProcess;
   userDataDir: string;
   /** Contents of `userData/logs/<name>.log`. */
@@ -85,7 +95,12 @@ export async function launchApp(options: LaunchOptions = {}): Promise<App> {
     writeFileSync(join(userDataDir, "settings.json"), JSON.stringify(options.settings));
   }
   const port = await freePort();
-  const child = spawnApp(userDataDir, [`--remote-debugging-port=${port}`], options.build);
+  const child = spawnApp(
+    userDataDir,
+    [`--remote-debugging-port=${port}`],
+    options.build,
+    options.open,
+  );
   const exited = new Promise<void>((resolveExit) => child.once("exit", () => resolveExit()));
 
   await waitFor(
@@ -111,9 +126,32 @@ export async function launchApp(options: LaunchOptions = {}): Promise<App> {
     "the Treepeek window",
   );
 
+  const pages = () =>
+    browser
+      .contexts()
+      .flatMap((context) => context.pages())
+      .filter((candidate) => candidate.url().startsWith("app://treepeek/"));
   return {
     browser,
     page: page as Page,
+    pages,
+    waitForPage: async (match, what) => {
+      let found: Page | undefined;
+      await waitFor(
+        async () => {
+          for (const candidate of pages()) {
+            if (await match(candidate).catch(() => false)) {
+              found = candidate;
+              return true;
+            }
+          }
+          return false;
+        },
+        20_000,
+        what,
+      );
+      return found as Page;
+    },
     process: child,
     userDataDir,
     log: (name) => {
@@ -134,9 +172,14 @@ export function spawnApp(
   userDataDir: string,
   extraArgs: string[] = [],
   build: "app" | "lab" = "app",
+  open: readonly string[] = [],
 ): ChildProcess {
   const { executable, args } = command(build);
   const env: NodeJS.ProcessEnv = { ...process.env, TREEPEEK_USER_DATA_DIR: userDataDir };
+  if (open.length > 0) {
+    env.NODE_ENV = "test";
+    env.TREEPEEK_E2E_OPEN = open.join(delimiter);
+  }
   // Windows stay transparent, unfocused and click-through unless the run asks to watch.
   if (!showWindows) env.TREEPEEK_E2E_BACKGROUND = "1";
   delete env.ELECTRON_RUN_AS_NODE;
@@ -171,4 +214,23 @@ function freePort(): Promise<number> {
       server.close(() => resolvePort(port));
     });
   });
+}
+
+/** Launches the app with `folder` open in its own window (no folder dialog). */
+export async function launchWithFolder(
+  folder: string | readonly string[],
+  options: Omit<LaunchOptions, "open"> = {},
+): Promise<App> {
+  return launchApp({ ...options, open: typeof folder === "string" ? [folder] : folder });
+}
+
+/** The scan root a window shows, or `null` for the welcome window (read from its UI). */
+export async function windowKind(page: Page): Promise<"welcome" | "scan" | "unknown"> {
+  return page.evaluate(() =>
+    document.querySelector('[data-testid="welcome"]')
+      ? "welcome"
+      : document.querySelector('[data-testid="scan-window"]')
+        ? "scan"
+        : "unknown",
+  );
 }

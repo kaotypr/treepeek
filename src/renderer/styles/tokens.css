@@ -23,6 +23,13 @@
   --muted-foreground: #56675d;
   --chrome: #102b25;
   --chrome-foreground: #f6f7ef;
+  --chrome-muted: #abc1b7;
+  --chrome-hover: #1f4038;
+  --chrome-ring: #d4f16e;
+  /* The timeline and navigator; translucent over vibrancy (see .vibrancy below). */
+  --sidebar: #f9fbf7;
+  --sidebar-translucent: rgb(249 251 247 / 0.8);
+  --backdrop: rgb(16 43 37 / 0.35);
 
   /* Actions */
   --primary: #d4f16e;
@@ -41,6 +48,10 @@
   --input: #c9d6ca;
   --switch-off: #74867a;
   --ring: #3b773e;
+  --hover: #eef4e6;
+  --selection: #e4f0cc;
+  --selection-foreground: #172521;
+  --selection-border: #b9d184;
 
   /* Diff */
   --diff-added: #e8f5df;
@@ -58,10 +69,19 @@
   --review-changed: #8a5a12;
   --review-changed-surface: #fff5db;
 
-  /* Working-tree status */
+  /* Working-tree status and file status letters */
   --status-staged: #2f6b3e;
   --status-unstaged: #8a5a12;
   --status-untracked: #6d4f92;
+  --status-added: #2f6b3e;
+  --status-modified: #84560f;
+  --status-deleted: #a33d2e;
+  --status-renamed: #2d5f8a;
+
+  /* Timeline */
+  --repo: #264b32;
+  --step: #dcead0;
+  --step-foreground: #2e4c24;
 
   --radius: 0.5rem;
 }
@@ -79,6 +99,12 @@
   --muted-foreground: #9fb0a5;
   --chrome: #0a110e;
   --chrome-foreground: #e3ebe5;
+  --chrome-muted: #9fb0a5;
+  --chrome-hover: #1b2823;
+  --chrome-ring: #8fc46a;
+  --sidebar: #111b17;
+  --sidebar-translucent: rgb(17 27 23 / 0.8);
+  --backdrop: rgb(0 0 0 / 0.5);
 
   --primary: #c6e85a;
   --primary-foreground: #172512;
@@ -95,6 +121,10 @@
   --input: #34463d;
   --switch-off: #5d6f64;
   --ring: #8fc46a;
+  --hover: #1a2722;
+  --selection: #213425;
+  --selection-foreground: #e3ebe5;
+  --selection-border: #3f5e39;
 
   --diff-added: #16301f;
   --diff-added-foreground: #b6e3bf;
@@ -113,6 +143,14 @@
   --status-staged: #7fc08e;
   --status-unstaged: #e0a458;
   --status-untracked: #b9a0e3;
+  --status-added: #7fc08e;
+  --status-modified: #e0a458;
+  --status-deleted: #f08b7a;
+  --status-renamed: #8fb8e8;
+
+  --repo: #a8d5a2;
+  --step: #24382a;
+  --step-foreground: #c6e6b4;
 }
 
 /* macOS "Increase contrast": stronger lines and diff colors. */
@@ -123,6 +161,14 @@
     --muted-foreground: #3f4f45;
     --diff-added: #cfeabd;
     --diff-removed: #ffd3cc;
+    --primary-strong: #2b5c2e;
+    --selection: #d6e8b4;
+    --selection-border: #6f8f3c;
+    --hover: #e4ecda;
+    --status-modified: #6e470b;
+    --status-deleted: #8a2f22;
+    --status-renamed: #214a6d;
+    --sidebar-translucent: var(--sidebar);
   }
   .dark {
     --border: #4d6157;
@@ -130,6 +176,15 @@
     --muted-foreground: #c0cec5;
     --diff-added: #1f4a2b;
     --diff-removed: #572622;
+    /* The light overrides above share :root's specificity, so dark restates these. */
+    --primary-strong: #a3d47e;
+    --status-modified: #f0b86a;
+    --status-deleted: #f6a091;
+    --status-renamed: #a7c8ef;
+    --selection: #2b4630;
+    --selection-border: #6f9a5f;
+    --hover: #22312b;
+    --sidebar-translucent: var(--sidebar);
   }
 }
 
@@ -144,6 +199,22 @@
   --color-muted-foreground: var(--muted-foreground);
   --color-chrome: var(--chrome);
   --color-chrome-foreground: var(--chrome-foreground);
+  --color-chrome-muted: var(--chrome-muted);
+  --color-chrome-hover: var(--chrome-hover);
+  --color-chrome-ring: var(--chrome-ring);
+  --color-sidebar: var(--sidebar);
+  --color-backdrop: var(--backdrop);
+  --color-hover: var(--hover);
+  --color-selection: var(--selection);
+  --color-selection-foreground: var(--selection-foreground);
+  --color-selection-border: var(--selection-border);
+  --color-status-added: var(--status-added);
+  --color-status-modified: var(--status-modified);
+  --color-status-deleted: var(--status-deleted);
+  --color-status-renamed: var(--status-renamed);
+  --color-repo: var(--repo);
+  --color-step: var(--step);
+  --color-step-foreground: var(--step-foreground);
   --color-primary: var(--primary);
   --color-primary-foreground: var(--primary-foreground);
   --color-primary-strong: var(--primary-strong);
@@ -204,4 +275,29 @@
 }
 .app-no-drag {
   -webkit-app-region: no-drag;
+}
+
+/* Side panels: opaque, or translucent over the window's vibrancy (main sets `.vibrancy`
+   on the root only when "Reduce transparency" is off). The preview stays opaque. */
+.side-panel {
+  background: var(--sidebar);
+}
+.vibrancy body {
+  background: transparent;
+}
+.vibrancy .side-panel {
+  background: var(--sidebar-translucent);
+}
+
+/* Panel separators: a hairline with a wider hit area from the panel library. */
+.panel-separator {
+  width: 1px;
+  background: var(--border);
+  outline: none;
+  transition: background-color 120ms;
+}
+.panel-separator:hover,
+.panel-separator:focus-visible,
+.panel-separator[data-separator="active"] {
+  background: var(--ring);
 }

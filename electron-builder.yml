@@ -37,6 +37,15 @@ mac:
   identity: null
   hardenedRuntime: false
   gatekeeperAssess: false
+  # Folders dropped on the Dock icon arrive as `open-file` (src/main/folders.ts). Treepeek
+  # only views them, and never claims to be their default handler.
+  extendInfo:
+    CFBundleDocumentTypes:
+      - CFBundleTypeName: Folder
+        CFBundleTypeRole: Viewer
+        LSHandlerRank: None
+        LSItemContentTypes:
+          - public.folder
 
 dmg:
   artifactName: ${productName}-${version}-${arch}.${ext}

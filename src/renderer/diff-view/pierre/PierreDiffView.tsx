@@ -17,6 +17,7 @@ import type { FileDiff } from "../../../shared/domain/diff";
 import { DIFF_THEMES, highlightPool } from "../highlight/pool";
 import { oldLineToNew, resultLineToNew } from "../line-map";
 import type { DiffAnchor, DiffViewMode, DiffViewProps, DiffViewTheme } from "../types";
+import { labelControls } from "./a11y-labels";
 import { applyStylesUnderCsp } from "./csp-styles";
 import "./pierre.css";
 import { toPierreDiff } from "./to-pierre";
@@ -28,7 +29,7 @@ interface Live {
 }
 
 export function PierreDiffView({ diff, mode, theme, ref }: DiffViewProps) {
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const liveRef = useRef<Live | null>(null);
   const themeRef = useRef(theme);
@@ -47,6 +48,7 @@ export function PierreDiffView({ diff, mode, theme, ref }: DiffViewProps) {
     content.append(host);
     const releaseStyles =
       host.shadowRoot === null ? () => {} : applyStylesUnderCsp(host.shadowRoot);
+    const releaseLabels = host.shadowRoot === null ? () => {} : labelControls(host.shadowRoot);
     const instance = new VirtualizedFileDiff<undefined, undefined>(
       viewOptions(mode, themeRef.current),
       virtualizer,
@@ -60,6 +62,7 @@ export function PierreDiffView({ diff, mode, theme, ref }: DiffViewProps) {
       instance.cleanUp();
       virtualizer.cleanUp();
       releaseStyles();
+      releaseLabels();
       host.remove();
     };
   }, [model, mode]);
@@ -110,15 +113,19 @@ export function PierreDiffView({ diff, mode, theme, ref }: DiffViewProps) {
   );
 
   return (
-    <div
+    // A named region, focusable so the keyboard can scroll the diff (WCAG 2.1.1).
+    <section
       ref={scrollRef}
-      className="diff-view-scroll h-full overflow-auto"
+      className="diff-view-scroll h-full overflow-auto outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
       data-testid="diff-view-scroll"
+      // biome-ignore lint/a11y/noNoninteractiveTabindex: a scrollable region must take focus to be scrolled without a mouse
+      tabIndex={0}
+      aria-label={`Changes in ${diff.path}`}
       data-diff-path={diff.path}
       data-diff-mode={mode}
     >
       <div ref={contentRef} />
-    </div>
+    </section>
   );
 }
 
