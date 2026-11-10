@@ -160,11 +160,15 @@ function start(): void {
     },
   });
 
-  /** A Settings or About window: no core service port, no scan. */
+  /**
+   * A Settings or About window: no scan. Settings gets a core service port for the review
+   * store (its usage and "Clear review data…"), which only the core service owns.
+   */
   const createUtilityWindow = (
     title: string,
     size: { width: number; height: number; minWidth: number; minHeight: number },
     onLoad?: (win: BrowserWindow) => void,
+    options: { core?: boolean } = {},
   ) => {
     const win = createWindow({
       theme: resolvedTheme(),
@@ -177,6 +181,7 @@ function start(): void {
       greet(win);
       onLoad?.(win);
     });
+    if (options.core) supervisor.attach(win);
     return win;
   };
 
@@ -184,12 +189,17 @@ function start(): void {
   const settingsWindow = new SettingsWindow({
     log: log.child("settings-window"),
     create: () =>
-      createUtilityWindow("Settings", SETTINGS_WINDOW_SIZE, (win) => {
-        if (pendingSection) {
-          emitToWindow(win, mainEvents["settings.section"], { section: pendingSection }, log);
-          pendingSection = null;
-        }
-      }),
+      createUtilityWindow(
+        "Settings",
+        SETTINGS_WINDOW_SIZE,
+        (win) => {
+          if (pendingSection) {
+            emitToWindow(win, mainEvents["settings.section"], { section: pendingSection }, log);
+            pendingSection = null;
+          }
+        },
+        { core: true },
+      ),
     showSection: (win, section) => {
       // A page still loading cannot take events yet; it gets the section once it has loaded.
       if (!loaded.has(win)) pendingSection = section;
@@ -277,6 +287,15 @@ function start(): void {
         openAbout: () => aboutWindow.open(),
         openHelpLink: (link) => void shell.openExternal(HELP_LINKS[link]),
         runCommand,
+        undo: (win) => {
+          if (!win || win.isDestroyed()) return;
+          const state = commandStates.get(win.webContents.id);
+          if (windows.scanWindows().includes(win) && state?.enabled.has("review.undo")) {
+            runCommand(win, "review.undo");
+          } else {
+            win.webContents.undo();
+          }
+        },
       }),
     );
     syncMenu();
