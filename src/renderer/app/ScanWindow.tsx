@@ -8,7 +8,7 @@ import type { Result } from "../../shared/ipc/result";
 import { installKeymap, isTextField } from "../commands/keymap";
 import { checkedCommands, startCommandReport } from "../commands/menu-state";
 import { useCommand } from "../commands/registry";
-import { main } from "../data/client";
+import { core, main } from "../data/client";
 import { useLatestEvent } from "../data/events";
 import { firstChangedLine } from "../data/first-changed-line";
 import {
@@ -26,6 +26,7 @@ import {
   useVisibleFiles,
 } from "../data/hooks/useSelection";
 import { comparisonKey, keys } from "../data/keys";
+import { useLiveRefresh } from "../data/refresh-sync";
 import { reviewFileOf } from "../data/review-model";
 import { orderedCheckouts, repositoryNeighbours, type ScanData } from "../data/scan-model";
 import { type ScanStream, startScan } from "../data/scan-stream";
@@ -39,6 +40,7 @@ import { persistUi, uiStore, useUi } from "../state/ui-store";
 import { undoStore } from "../state/undo";
 import { ConnectionBanner } from "./ConnectionBanner";
 import { NoticeBar } from "./NoticeBar";
+import { RefreshBanner } from "./RefreshBanner";
 
 const DEFAULT_TIMELINE_WIDTH = 300;
 const DEFAULT_NAVIGATOR_WIDTH = 340;
@@ -75,6 +77,14 @@ export function ScanWindow({ scanRoot }: { scanRoot: string }) {
   const rescan = useCallback(async () => {
     await streamRef.current?.rescan();
   }, []);
+  /**
+   * The person's Refresh (⌘R, the toolbar, the live refresh banner): live refresh runs
+   * again where it paused, then the scan reads everything it may have missed.
+   */
+  const refresh = useCallback(async () => {
+    await core().refresh.resume();
+    await rescan();
+  }, [rescan]);
 
   const context = useMemo<ScanContextValue>(() => ({ scanRoot, rescan }), [scanRoot, rescan]);
 
@@ -102,6 +112,7 @@ export function ScanWindow({ scanRoot }: { scanRoot: string }) {
     [],
   );
   useReviewEvents();
+  useLiveRefresh(scanRoot);
 
   // Settings › Review: the comparison the next selected checkout starts on, and whether
   // file lists start with "Hide viewed" on.
@@ -134,8 +145,9 @@ export function ScanWindow({ scanRoot }: { scanRoot: string }) {
         data-scan-root={scanRoot}
       >
         <ConnectionBanner onReconnected={() => void rescan()} />
-        <Toolbar onRefresh={() => void rescan()} />
-        <WindowBody git={git} onRescan={() => void rescan()} />
+        <RefreshBanner onRefresh={() => void refresh()} />
+        <Toolbar onRefresh={() => void refresh()} />
+        <WindowBody git={git} onRescan={() => void refresh()} />
         <NoticeBar />
       </div>
     </ScanContext.Provider>
