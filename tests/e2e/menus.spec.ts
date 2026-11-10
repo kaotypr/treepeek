@@ -89,6 +89,15 @@ test.describe(`menus and shortcuts (${target})`, () => {
       await selectFile(page, "three.txt");
       expect(await press(page, "Alt+ArrowDown"), "⌥↓").toEqual(["file.next"]);
       expect(await press(page, "Alt+ArrowUp"), "⌥↑").toEqual(["file.previous"]);
+      // Review marks: V, ⌘↩, and ⌘Z once there is a "Mark all" to undo.
+      await selectFile(page, "three.txt");
+      expect(await press(page, "v"), "V").toEqual(["file.toggleViewed"]);
+      await expect(page.getByTestId("viewed-toggle")).toHaveAttribute("aria-pressed", "true");
+      expect(await press(page, "Meta+Enter"), "⌘↩").toEqual(["file.markViewedAndNext"]);
+      await page.getByTestId("mark-all-reviewed").click();
+      await expect(page.getByTestId("review-progress")).toHaveAttribute("data-state", "reviewed");
+      expect(await press(page, "Meta+z"), "⌘Z").toEqual(["review.undo"]);
+      await expect(page.getByTestId("review-progress")).toHaveAttribute("data-state", "partial");
       expect(await press(page, "Meta+F"), "⌘F").toEqual(["files.filter"]);
       await expect(page.getByTestId("file-filter")).toBeFocused();
       // In the filter field ⌥↓ is the field's own, but ⌘ shortcuts still run.
