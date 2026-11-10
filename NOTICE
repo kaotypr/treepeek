@@ -1,0 +1,17 @@
+Treepeek — Copyright 2026 Adhitya Yosua Sanjaya Andaria
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+
+Notices of bundled Apache-2.0 components
+----------------------------------------
+
+The Treepeek app bundles open-source components. These are licensed under the Apache
+License, Version 2.0 and carry NOTICE files of their own:
+
+- @pierre/highlights
+- @pierre/theme
+
+The full text of each of those NOTICE files, and the license of every bundled component,
+is in THIRD_PARTY_NOTICES, which ships inside the app and is shown in About Treepeek ›
+Acknowledgements.
