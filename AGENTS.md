@@ -124,6 +124,8 @@ the code to the process that owns it.
 | Fuses, signing, minimum macOS                                                  | `electron-builder.yml`                                                                                      |
 | Repository fixtures for tests                                                  | `tests/support/git-fixture.ts`                                                                              |
 | What the app ships and its licenses: notices, the allow-list check             | `build/licenses.ts`, `build/generate-notices.ts`, `build/check-licenses.ts`, `build/license-allowlist.json` |
+| Shiki grammars and themes left out of the app (shown as plain text)            | `src/renderer/diff-view/highlight/excluded-assets.ts`, `excludeShikiAssets` in `electron.vite.config.ts`    |
+| License texts read upstream for reviewed grammars                              | `build/asset-licenses/<kind>-<name>.txt`                                                                    |
 | CI, issue and pull request templates, Dependabot; settings kept on GitHub      | `.github/` (`workflows/ci.yml`), `docs/repository-settings.md`                                              |
 | Electronegativity findings reviewed as acceptable                              | `build/electronegativity-reviewed.json`, checked by `build/check-electronegativity.ts`                      |
 
