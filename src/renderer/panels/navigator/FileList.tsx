@@ -237,25 +237,30 @@ export function FileList() {
                   {state === undefined || checkoutPath === null ? (
                     <span aria-hidden="true" className="size-3 shrink-0" />
                   ) : (
-                    // The list holds focus and the row says the state, so the checkbox is for
-                    // the mouse only; the keyboard marks with V.
-                    <input
-                      type="checkbox"
-                      tabIndex={-1}
+                    // A box for the mouse, not a control: an option cannot hold one. The
+                    // list holds focus and the row says the state; the keyboard marks with V.
+                    <span
                       aria-hidden="true"
-                      checked={state === "viewed"}
                       title={state === "viewed" ? "Viewed (V)" : "Mark as viewed (V)"}
-                      onClick={(event) => event.stopPropagation()}
-                      onChange={(event) =>
+                      onClick={(event) => {
+                        event.stopPropagation();
                         mark.mutate({
                           checkoutPath,
                           paths: [file.path],
-                          viewed: event.target.checked,
-                        })
-                      }
-                      className="mt-px size-3 shrink-0 accent-review-viewed"
+                          viewed: state !== "viewed",
+                        });
+                      }}
+                      className={cn(
+                        "mt-px inline-flex size-3 shrink-0 items-center justify-center rounded-[3px] border text-[9px] leading-none",
+                        state === "viewed"
+                          ? "border-review-viewed bg-review-viewed text-background"
+                          : "border-input bg-card",
+                      )}
                       data-testid="viewed-checkbox"
-                    />
+                      data-checked={state === "viewed"}
+                    >
+                      {state === "viewed" ? "✓" : ""}
+                    </span>
                   )}
                   <span
                     aria-hidden="true"
@@ -275,6 +280,16 @@ export function FileList() {
                       {file.category ? ", " : ""}
                     </span>
                   </span>
+                  {file.category && (
+                    <span
+                      className={cn(
+                        "shrink-0 text-[10px] uppercase tracking-wide",
+                        CATEGORY_CLASS[file.category],
+                      )}
+                    >
+                      {file.category}
+                    </span>
+                  )}
                   {state && <span className="sr-only">, {VIEWED_LABEL[state]}</span>}
                   {state === "changedSinceViewed" && (
                     <span
@@ -284,16 +299,6 @@ export function FileList() {
                       data-testid="changed-badge"
                     >
                       changed
-                    </span>
-                  )}
-                  {file.category && (
-                    <span
-                      className={cn(
-                        "shrink-0 text-[10px] uppercase tracking-wide",
-                        CATEGORY_CLASS[file.category],
-                      )}
-                    >
-                      {file.category}
                     </span>
                   )}
                 </div>
