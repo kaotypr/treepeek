@@ -1,9 +1,11 @@
 import { MAX_SCAN_DEPTH } from "../../shared/constants";
 import { coreCalls, coreEvents, err, ok } from "../../shared/ipc";
 import { requireGit } from "../git/runtime";
+import { checkScanRoot } from "../scan/root";
 import type { WalkResult } from "../scan/walk";
 import type { ScanRun, Session } from "../sessions/session";
 import { failWith } from "./errors";
+import { scanRootError } from "./session";
 
 /**
  * `scan.start {requestId}`: answers with the folder tree once the walk finishes. The rest
@@ -18,6 +20,9 @@ export function registerScanHandlers(session: Session): void {
     if (scanRoot === null) {
       return err("invalidRequest", "Open the session with a scan root before scanning.");
     }
+    // The folder may have become unreadable since the session opened (a rescan).
+    const root = await checkScanRoot(scanRoot);
+    if (!root.ok) return scanRootError(root.problem);
     let run: ScanRun;
     let walked: WalkResult;
     try {

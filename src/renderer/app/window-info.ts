@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
+import type { WindowKind } from "../../shared/ipc/contract";
 import type { WindowUiState } from "../../shared/settings";
 import { uiStore } from "../state/ui-store";
 
 export interface WindowInfo {
+  kind: WindowKind;
   scanRoot: string | null;
   ui: WindowUiState | null;
   vibrancy: boolean;

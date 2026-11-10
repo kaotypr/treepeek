@@ -1,4 +1,4 @@
-import { symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { observeSpawns } from "../../../../src/core/git/process";
 import { setGitBinary } from "../../../../src/core/git/runtime";
@@ -77,6 +77,58 @@ describe("session.open", () => {
         ok: false,
         error: { code: "invalidRequest" },
       });
+    }
+  });
+
+  it("names why a folder cannot be scanned in detail.scanRoot", async () => {
+    setTestGit();
+    const { client } = newHarness().open(1);
+    const file = fx.outsidePath("not-a-folder.txt");
+    writeFileSync(file, "x");
+    expect(await openAt(client, fx.path("missing"))).toMatchObject({
+      ok: false,
+      error: { code: "invalidRequest", detail: { scanRoot: "missing" } },
+    });
+    expect(await openAt(client, file)).toMatchObject({
+      ok: false,
+      error: { code: "invalidRequest", detail: { scanRoot: "notAFolder" } },
+    });
+  });
+
+  it("refuses an unreadable folder rather than scanning it as empty", async () => {
+    setTestGit();
+    const { client } = newHarness().open(1);
+    const locked = fx.outsidePath("locked");
+    mkdirSync(locked);
+    chmodSync(locked, 0o000);
+    try {
+      expect(await openAt(client, locked)).toMatchObject({
+        ok: false,
+        error: {
+          code: "invalidRequest",
+          message: "Treepeek is not allowed to read this folder.",
+          detail: { scanRoot: "unreadable" },
+        },
+      });
+    } finally {
+      chmodSync(locked, 0o755);
+    }
+  });
+
+  it("refuses a rescan once the folder has become unreadable", async () => {
+    setTestGit();
+    const { client } = newHarness().open(1);
+    const folder = fx.outsidePath("becomes-locked");
+    mkdirSync(folder);
+    expect(await openAt(client, folder)).toMatchObject({ ok: true });
+    chmodSync(folder, 0o000);
+    try {
+      expect(await client.call("scan.start", { requestId: "s1" })).toMatchObject({
+        ok: false,
+        error: { code: "invalidRequest", detail: { scanRoot: "unreadable" } },
+      });
+    } finally {
+      chmodSync(folder, 0o755);
     }
   });
 

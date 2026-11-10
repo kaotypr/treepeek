@@ -1,21 +1,33 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { Group, type Layout, Panel, Separator } from "react-resizable-panels";
+import type { FileDiff } from "../../shared/domain/diff";
+import type { Result } from "../../shared/ipc/result";
 import { installKeymap } from "../commands/keymap";
+import { checkedCommands, startCommandReport } from "../commands/menu-state";
 import { useCommand } from "../commands/registry";
 import { main } from "../data/client";
 import { useLatestEvent } from "../data/events";
-import { ScanContext, type ScanContextValue, useScan } from "../data/hooks/useScan";
-import { matchesSelection, useSelectedFile, useVisibleFiles } from "../data/hooks/useSelection";
+import { firstChangedLine } from "../data/first-changed-line";
+import { ScanContext, type ScanContextValue, useScan, useScanContext } from "../data/hooks/useScan";
+import {
+  matchesSelection,
+  useSelectedComparison,
+  useSelectedFile,
+  useVisibleFiles,
+} from "../data/hooks/useSelection";
+import { comparisonKey, keys } from "../data/keys";
 import { orderedCheckouts, repositoryNeighbours, type ScanData } from "../data/scan-model";
 import { type ScanStream, startScan } from "../data/scan-stream";
 import { Navigator } from "../panels/navigator/Navigator";
 import { Preview } from "../panels/preview/Preview";
 import { Toolbar } from "../panels/Toolbar";
 import { TimelinePanel } from "../panels/timeline/TimelinePanel";
+import { GitSetup } from "../screens/git-setup/GitSetup";
+import { ScanError } from "../screens/scan-error/ScanError";
 import { persistUi, uiStore, useUi } from "../state/ui-store";
 import { ConnectionBanner } from "./ConnectionBanner";
-import { GitMissingNotice } from "./GitMissingNotice";
+import { NoticeBar } from "./NoticeBar";
 
 const DEFAULT_TIMELINE_WIDTH = 300;
 const DEFAULT_NAVIGATOR_WIDTH = 340;
@@ -53,24 +65,90 @@ export function ScanWindow({ scanRoot }: { scanRoot: string }) {
 
   useEffect(() => persistUi(uiStore, (ui) => void main().window.state({ ui })), []);
   useEffect(() => installKeymap(window), []);
+  useEffect(
+    () =>
+      startCommandReport({
+        send: (state) => void main().window.commands(state),
+        checked: () => checkedCommands(uiStore.getState()),
+        subscribe: (listener) => uiStore.subscribe(listener),
+      }),
+    [],
+  );
+
+  // Settings › Review: the comparison the next selected checkout starts on.
+  const settings = useLatestEvent("settings.changed");
+  useEffect(() => {
+    if (settings) uiStore.getState().setDefaultComparison(settings.defaultComparison);
+  }, [settings]);
 
   const git = useLatestEvent("git.state");
+  const gitFound = git?.found;
+  const hadNoGit = useRef(false);
+  useEffect(() => {
+    if (gitFound === false) hadNoGit.current = true;
+    // Git was found after all (picked, installed, Try again): scan what was waiting.
+    if (gitFound === true && hadNoGit.current) {
+      hadNoGit.current = false;
+      void rescan();
+    }
+  }, [gitFound, rescan]);
 
   return (
     <ScanContext.Provider value={context}>
-      <div className="flex h-full flex-col" data-testid="scan-window" data-scan-root={scanRoot}>
+      <div
+        className="relative flex h-full flex-col"
+        data-testid="scan-window"
+        data-scan-root={scanRoot}
+      >
         <ConnectionBanner onReconnected={() => void rescan()} />
         <Toolbar onRefresh={() => void rescan()} />
-        {git && !git.found ? (
-          <GitMissingNotice problem={git.problem} {...(git.detail ? { detail: git.detail } : {})} />
-        ) : (
-          <>
-            <WindowCommands onRefresh={() => void rescan()} />
-            <Panels />
-          </>
-        )}
+        <WindowBody git={git} onRescan={() => void rescan()} />
+        <NoticeBar />
       </div>
     </ScanContext.Provider>
+  );
+}
+
+/**
+ * What fills the window under the toolbar: the git setup screen while no usable git is
+ * found, the scan error when the folder itself cannot be scanned, and the panels otherwise.
+ */
+function WindowBody({
+  git,
+  onRescan,
+}: {
+  git: ReturnType<typeof useLatestEvent<"git.state">>;
+  onRescan: () => void;
+}) {
+  const { scanRoot } = useScanContext();
+  const rootProblem = useScan(
+    useCallback(
+      (scan: ScanData) =>
+        scan.phase === "failed" && scan.error?.scanRoot
+          ? { problem: scan.error.scanRoot, message: scan.error.message }
+          : null,
+      [],
+    ),
+  );
+  if (git && !git.found) return <GitSetup state={git} />;
+  if (rootProblem) {
+    return (
+      <>
+        <WindowCommands onRefresh={onRescan} />
+        <ScanError
+          scanRoot={scanRoot}
+          problem={rootProblem.problem}
+          message={rootProblem.message}
+          onRetry={onRescan}
+        />
+      </>
+    );
+  }
+  return (
+    <>
+      <WindowCommands onRefresh={onRescan} />
+      <Panels />
+    </>
   );
 }
 
@@ -235,5 +313,110 @@ function WindowCommands({ onRefresh }: { onRefresh: () => void }) {
     },
     () => selected !== null && order.includes(selected),
   );
+
+  useCheckoutCommands();
   return null;
+}
+
+/** Reports a failed native action in the notice bar; a success says `done` when given. */
+function report(result: Result<unknown>, done?: string): void {
+  if (!result.ok) uiStore.getState().showNotice(result.error.message, "error");
+  else if (done) uiStore.getState().showNotice(done);
+}
+
+/**
+ * The selected checkout's commands: Set Start…, "Open in…" (editor, terminal, Finder) and
+ * copying its path, branch or full commit id. The editor opens the selected file at its
+ * first changed line when its diff is loaded; with no file selected, the checkout folder.
+ */
+function useCheckoutCommands(): void {
+  const queryClient = useQueryClient();
+  const { checkout, query } = useSelectedComparison();
+  const file = useSelectedFile();
+  const ui = uiStore.getState;
+  const has = checkout !== undefined;
+
+  const editorTarget = (): { path: string; line?: number } | null => {
+    if (!checkout) return null;
+    if (!file || file.status === "deleted") return { path: checkout.path };
+    const result = query.data;
+    const diff = result
+      ? queryClient.getQueryData<FileDiff>(
+          keys.fileDiff(checkout.path, comparisonKey(result.comparison), file, file.resultHash),
+        )
+      : undefined;
+    const line = diff ? firstChangedLine(diff) : undefined;
+    return { path: `${checkout.path}/${file.path}`, ...(line === undefined ? {} : { line }) };
+  };
+
+  useCommand(
+    "checkout.setStart",
+    () => {
+      ui().setFocusPreview(false);
+      ui().setComparisonOpen(false);
+      ui().setStartDialogOpen(true);
+    },
+    () => has,
+  );
+  useCommand(
+    "checkout.revealInFinder",
+    () => {
+      if (checkout)
+        void main()
+          .openIn.finder({ path: checkout.path })
+          .then((r) => report(r));
+    },
+    () => has,
+  );
+  useCommand(
+    "checkout.openInEditor",
+    () => {
+      const target = editorTarget();
+      if (target)
+        void main()
+          .openIn.editor(target)
+          .then((r) => report(r));
+    },
+    () => has,
+  );
+  useCommand(
+    "checkout.openInTerminal",
+    () => {
+      if (checkout)
+        void main()
+          .openIn.terminal({ path: checkout.path })
+          .then((r) => report(r));
+    },
+    () => has,
+  );
+  useCommand(
+    "checkout.copyPath",
+    () => {
+      if (!checkout) return;
+      void main()
+        .clipboard.copy({ text: checkout.path, kind: "path" })
+        .then((r) => report(r, "Copied the path."));
+    },
+    () => has,
+  );
+  useCommand(
+    "checkout.copyBranch",
+    () => {
+      if (!checkout?.branch) return;
+      void main()
+        .clipboard.copy({ text: checkout.branch, kind: "branch" })
+        .then((r) => report(r, "Copied the branch name."));
+    },
+    () => !!checkout?.branch,
+  );
+  useCommand(
+    "checkout.copyCommit",
+    () => {
+      if (!checkout?.head) return;
+      void main()
+        .clipboard.copy({ text: checkout.head, kind: "commit" })
+        .then((r) => report(r, "Copied the commit id."));
+    },
+    () => !!checkout?.head,
+  );
 }

@@ -5,6 +5,7 @@ import {
   KEYMAP,
   shortcutLabel,
 } from "../../../src/renderer/commands/keymap";
+import { checkedCommands, startCommandReport } from "../../../src/renderer/commands/menu-state";
 import {
   type CommandId,
   clearCommands,
@@ -12,6 +13,9 @@ import {
   registerCommand,
   runCommand,
 } from "../../../src/renderer/commands/registry";
+import { firstChangedLine } from "../../../src/renderer/data/first-changed-line";
+import { uiStore } from "../../../src/renderer/state/ui-store";
+import type { HunkLineKind } from "../../../src/shared/domain/diff";
 
 const key = (
   k: string,
@@ -41,6 +45,10 @@ describe("commandForKey", () => {
     ["⌘⇧F", key("F", { meta: true, shift: true }), "preview.focus"],
     ["⌘F", key("f", { meta: true }), "files.filter"],
     ["⌘K", key("k", { meta: true }), "comparison.settings"],
+    ["⌘E", key("e", { meta: true }), "checkout.openInEditor"],
+    ["⌘⇧E", key("E", { meta: true, shift: true }), "checkout.openInTerminal"],
+    ["⌘⇧R", key("R", { meta: true, shift: true }), "checkout.revealInFinder"],
+    ["⌘,", key(",", { meta: true }), "app.settings"],
   ])("%s runs its command", (_label, event, command) => {
     expect(commandForKey(event, false)).toBe(command);
   });
@@ -127,5 +135,118 @@ describe("installKeymap", () => {
     expect(next).not.toHaveBeenCalled();
     input.remove();
     uninstall();
+  });
+});
+
+describe("the command report for the menu", () => {
+  it("names the checked items from the layout", () => {
+    const ui = uiStore.getState();
+    expect(
+      checkedCommands({
+        ...ui,
+        timelineOpen: true,
+        navigatorMode: "tree",
+        previewMode: "unified",
+        focusPreview: true,
+      }),
+    ).toEqual(["view.timeline", "view.tree", "preview.unified", "preview.focus"]);
+    expect(
+      checkedCommands({
+        ...ui,
+        timelineOpen: false,
+        navigatorMode: "picker",
+        previewMode: "result",
+        focusPreview: false,
+      }),
+    ).toEqual(["preview.result"]);
+  });
+
+  it("sends what is enabled once per change, and nothing when nothing changed", async () => {
+    const sent: { enabled: string[]; checked: string[] }[] = [];
+    let enabled = true;
+    registerCommand(
+      "scan.refresh",
+      () => {},
+      () => enabled,
+    );
+    const stop = startCommandReport({ send: (state) => sent.push(state), checked: () => [] });
+    await Promise.resolve();
+    expect(sent).toEqual([{ enabled: ["scan.refresh"], checked: [] }]);
+
+    registerCommand("checkout.copyPath", () => {});
+    registerCommand("checkout.copyBranch", () => {});
+    await Promise.resolve();
+    expect(sent).toHaveLength(2);
+    expect(sent[1]?.enabled).toEqual(["scan.refresh", "checkout.copyPath", "checkout.copyBranch"]);
+
+    enabled = false;
+    clearCommands();
+    registerCommand(
+      "scan.refresh",
+      () => {},
+      () => enabled,
+    );
+    await Promise.resolve();
+    expect(sent.at(-1)).toEqual({ enabled: [], checked: [] });
+    const before = sent.length;
+    registerCommand(
+      "scan.refresh",
+      () => {},
+      () => enabled,
+    );
+    await Promise.resolve();
+    expect(sent).toHaveLength(before);
+    stop();
+  });
+});
+
+describe("firstChangedLine", () => {
+  const hunk = (
+    newStart: number,
+    newLines: number,
+    lines: { kind: HunkLineKind; newNo: number | null }[],
+  ) => ({
+    oldStart: 1,
+    oldLines: 1,
+    newStart,
+    newLines,
+    header: "@@",
+    lines: lines.map((line) => ({ ...line, text: "", oldNo: null })),
+  });
+
+  it("is the first added line, or where lines were removed", () => {
+    expect(
+      firstChangedLine({
+        status: "modified",
+        hunks: [
+          hunk(10, 3, [
+            { kind: "context", newNo: 10 },
+            { kind: "add", newNo: 11 },
+          ]),
+        ],
+      }),
+    ).toBe(11);
+    expect(
+      firstChangedLine({
+        status: "modified",
+        hunks: [hunk(4, 0, [{ kind: "remove", newNo: null }])],
+      }),
+    ).toBe(5);
+    expect(
+      firstChangedLine({
+        status: "modified",
+        hunks: [hunk(0, 0, [{ kind: "remove", newNo: null }])],
+      }),
+    ).toBe(1);
+  });
+
+  it("is unknown for a file without hunks or a deleted file", () => {
+    expect(firstChangedLine({ status: "modified", hunks: [] })).toBeUndefined();
+    expect(
+      firstChangedLine({
+        status: "deleted",
+        hunks: [hunk(0, 0, [{ kind: "remove", newNo: null }])],
+      }),
+    ).toBeUndefined();
   });
 });

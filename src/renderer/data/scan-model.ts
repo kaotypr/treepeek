@@ -3,12 +3,14 @@
  * functions, so the derivations are tested without a window.
  */
 
-import type {
-  Checkout,
-  FolderNode,
-  Repository,
-  ScanProblem,
-  TimelineEntry,
+import {
+  type Checkout,
+  type FolderNode,
+  type Repository,
+  SCAN_ROOT_PROBLEMS,
+  type ScanProblem,
+  type ScanRootProblem,
+  type TimelineEntry,
 } from "../../shared/domain/scan";
 import type { IpcErrorCode } from "../../shared/ipc/result";
 
@@ -28,7 +30,15 @@ export interface ScanData {
   repositories: Repository[];
   problems: ScanProblem[];
   durationMs: number | null;
-  error: { code: IpcErrorCode; message: string } | null;
+  /** Why the scan failed; `scanRoot` when the folder itself cannot be scanned. */
+  error: { code: IpcErrorCode; message: string; scanRoot?: ScanRootProblem } | null;
+}
+
+/** The scan-root problem an `invalidRequest` carries in `detail.scanRoot`, if any. */
+export function scanRootProblem(detail: unknown): ScanRootProblem | undefined {
+  if (detail === null || typeof detail !== "object" || !("scanRoot" in detail)) return undefined;
+  const value = detail.scanRoot;
+  return SCAN_ROOT_PROBLEMS.find((problem) => problem === value);
 }
 
 export function emptyScan(scanRoot: string): ScanData {

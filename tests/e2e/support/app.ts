@@ -67,6 +67,12 @@ export interface LaunchOptions {
    * with `NODE_ENV=test`), instead of the native folder dialog.
    */
   open?: readonly string[];
+  /**
+   * Test-only hooks for the app (`src/main/test-hooks.ts`), such as
+   * `TREEPEEK_E2E_LAUNCH_LOG` or `TREEPEEK_E2E_DIALOG`. Setting any of them runs the app
+   * with `NODE_ENV=test`, the only way they are honoured.
+   */
+  env?: Readonly<Record<string, string>>;
 }
 
 export interface App {
@@ -100,6 +106,7 @@ export async function launchApp(options: LaunchOptions = {}): Promise<App> {
     [`--remote-debugging-port=${port}`],
     options.build,
     options.open,
+    options.env,
   );
   const exited = new Promise<void>((resolveExit) => child.once("exit", () => resolveExit()));
 
@@ -173,12 +180,17 @@ export function spawnApp(
   extraArgs: string[] = [],
   build: "app" | "lab" = "app",
   open: readonly string[] = [],
+  hooks: Readonly<Record<string, string>> = {},
 ): ChildProcess {
   const { executable, args } = command(build);
   const env: NodeJS.ProcessEnv = { ...process.env, TREEPEEK_USER_DATA_DIR: userDataDir };
   if (open.length > 0) {
     env.NODE_ENV = "test";
     env.TREEPEEK_E2E_OPEN = open.join(delimiter);
+  }
+  if (Object.keys(hooks).length > 0) {
+    env.NODE_ENV = "test";
+    Object.assign(env, hooks);
   }
   // Windows stay transparent, unfocused and click-through unless the run asks to watch.
   if (!showWindows) env.TREEPEEK_E2E_BACKGROUND = "1";
@@ -224,13 +236,41 @@ export async function launchWithFolder(
   return launchApp({ ...options, open: typeof folder === "string" ? [folder] : folder });
 }
 
-/** The scan root a window shows, or `null` for the welcome window (read from its UI). */
-export async function windowKind(page: Page): Promise<"welcome" | "scan" | "unknown"> {
+/** What a window shows, read from its UI. */
+export async function windowKind(
+  page: Page,
+): Promise<"welcome" | "scan" | "settings" | "about" | "unknown"> {
   return page.evaluate(() =>
     document.querySelector('[data-testid="welcome"]')
       ? "welcome"
       : document.querySelector('[data-testid="scan-window"]')
         ? "scan"
-        : "unknown",
+        : document.querySelector('[data-testid="settings-window"]')
+          ? "settings"
+          : document.querySelector('[data-testid="about"]')
+            ? "about"
+            : "unknown",
   );
+}
+
+/** One action "Open in…", the clipboard or Open Logs Folder recorded (`TREEPEEK_E2E_LAUNCH_LOG`). */
+export type LaunchRecord =
+  | { action: "run"; command: string; args: string[] }
+  | { action: "reveal"; path: string }
+  | { action: "openFolder"; path: string }
+  | { action: "copy"; text: string };
+
+/** A fresh file for the app to record launches in; `read()` answers what it recorded. */
+export function launchLog(): { file: string; read(): LaunchRecord[] } {
+  const file = join(mkdtempSync(join(tmpdir(), "treepeek-launch-")), "launches.jsonl");
+  return {
+    file,
+    read: () =>
+      existsSync(file)
+        ? readFileSync(file, "utf8")
+            .split("\n")
+            .filter(Boolean)
+            .map((line) => JSON.parse(line) as LaunchRecord)
+        : [],
+  };
 }

@@ -187,3 +187,41 @@ export function focusWindow(win: BrowserWindow): void {
   if (!win.isVisible()) win.show();
   win.focus();
 }
+
+/**
+ * A window there is at most one of (Settings, About): opening it again brings the open
+ * one forward instead of making a second.
+ */
+export class SingletonWindow {
+  readonly #create: () => BrowserWindow;
+  #win: BrowserWindow | null = null;
+
+  constructor(create: () => BrowserWindow) {
+    this.#create = create;
+  }
+
+  /** Opens the window, or brings it forward; answers it and whether it was just made. */
+  open(): { win: BrowserWindow; created: boolean } {
+    const existing = this.get();
+    if (existing) {
+      focusWindow(existing);
+      return { win: existing, created: false };
+    }
+    const win = this.#create();
+    this.#win = win;
+    win.once("closed", () => {
+      if (this.#win === win) this.#win = null;
+    });
+    return { win, created: true };
+  }
+
+  get(): BrowserWindow | null {
+    return this.#win && !this.#win.isDestroyed() ? this.#win : null;
+  }
+
+  /** The window when `contentsId` is its web contents. */
+  fromContentsId(contentsId: number): BrowserWindow | null {
+    const win = this.get();
+    return win && !win.webContents.isDestroyed() && win.webContents.id === contentsId ? win : null;
+  }
+}

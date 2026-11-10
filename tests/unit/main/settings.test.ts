@@ -30,6 +30,10 @@ describe("SettingsStore", () => {
       version: SETTINGS_VERSION,
       appearance: "dark",
       gitPath: null,
+      restoreWindows: true,
+      defaultComparison: "review",
+      editor: { kind: "auto" },
+      terminal: { kind: "auto" },
       recentFolders: [],
       windows: [],
     });
@@ -75,12 +79,7 @@ describe("SettingsStore", () => {
   });
   it("loads a file written before gitPath existed, with no override", () => {
     writeFileSync(join(dir, "settings.json"), JSON.stringify({ version: 1, appearance: "dark" }));
-    expect(new SettingsStore(dir).get()).toEqual({
-      appearance: "dark",
-      gitPath: null,
-      recentFolders: [],
-      windows: [],
-    });
+    expect(new SettingsStore(dir).get()).toEqual({ ...DEFAULT_SETTINGS, appearance: "dark" });
   });
 
   it("keeps recent folders and saved windows across a restart", () => {
@@ -116,9 +115,8 @@ describe("SettingsStore", () => {
     );
     const store = new SettingsStore(dir);
     expect(store.get()).toEqual({
+      ...DEFAULT_SETTINGS,
       appearance: "dark",
-      gitPath: null,
-      recentFolders: [],
       windows: [{ scanRoot: "/Users/me/work", bounds: null, ui: null }],
     });
     expect(readdirSync(dir).some((name) => name.startsWith("settings.corrupt-"))).toBe(false);
@@ -139,6 +137,40 @@ describe("SettingsStore", () => {
     expect(new SettingsStore(dir).get().gitPath).toBe("/opt/homebrew/bin/git");
     store.set({ gitPath: null });
     expect(new SettingsStore(dir).get().gitPath).toBeNull();
+  });
+
+  it("keeps the integration and review choices across a restart", () => {
+    new SettingsStore(dir).set({
+      restoreWindows: false,
+      defaultComparison: "working",
+      editor: { kind: "custom", command: "myeditor --line {line} {path}" },
+      terminal: { kind: "app", bundleId: "com.googlecode.iterm2" },
+    });
+    expect(new SettingsStore(dir).get()).toMatchObject({
+      restoreWindows: false,
+      defaultComparison: "working",
+      editor: { kind: "custom", command: "myeditor --line {line} {path}" },
+      terminal: { kind: "app", bundleId: "com.googlecode.iterm2" },
+    });
+  });
+
+  it("falls back to the default for a damaged integration choice, keeping the rest", () => {
+    writeFileSync(
+      join(dir, "settings.json"),
+      JSON.stringify({
+        version: 1,
+        appearance: "light",
+        editor: { kind: "custom", command: "no path placeholder" },
+        terminal: { kind: "app", bundleId: "com.googlecode.iterm2" },
+        defaultComparison: "nonsense",
+      }),
+    );
+    expect(new SettingsStore(dir).get()).toMatchObject({
+      appearance: "light",
+      editor: { kind: "auto" },
+      terminal: { kind: "app", bundleId: "com.googlecode.iterm2" },
+      defaultComparison: "review",
+    });
   });
 
   it("rejects a relative git path", () => {

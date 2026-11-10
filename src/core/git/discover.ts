@@ -111,7 +111,7 @@ export async function discoverGit(
     return {
       found: false,
       problem: "tooOld",
-      detail: `Git ${formatGitVersion(tooOld.version)} at ${tooOld.path} is older than ${formatGitVersion(MIN_GIT_VERSION)}, the oldest version Treepeek supports.`,
+      detail: tooOldDetail(tooOld.path, tooOld.version),
     };
   }
   if (toolsMissing) {
@@ -122,6 +122,53 @@ export async function discoverGit(
     };
   }
   return { found: false, problem: "notFound" };
+}
+
+/**
+ * Checks one binary the person picked, before it becomes the override: is it an
+ * executable, a git, and at least `MIN_GIT_VERSION`? macOS's `/usr/bin/git` is run only
+ * when the Command Line Tools are installed, as in `discoverGit`. Answers the same
+ * `GitState` discovery would, naming the problem with this binary.
+ */
+export async function probeGit(
+  path: string,
+  loginPath: string | null,
+  deps: DiscoverDeps = {},
+): Promise<GitState> {
+  const env = gitEnvForLoginPath(loginPath, deps.baseEnv);
+  const timeoutMs = deps.timeoutMs ?? DISCOVERY_TIMEOUT_MS;
+  if (!isAbsolute(path)) {
+    return { found: false, problem: "notFound", detail: `${path} is not an absolute path.` };
+  }
+  const real = await realpathOrNull(path);
+  if (real === null || !(await isExecutableFile(real))) {
+    return { found: false, problem: "notFound", detail: `${path} is not a program.` };
+  }
+  const systemGit = deps.systemGit ?? SYSTEM_GIT;
+  if (
+    (deps.platform ?? process.platform) === "darwin" &&
+    real === (await realpathOrNull(systemGit))
+  ) {
+    if (!(await hasCommandLineTools(deps.xcodeSelect ?? XCODE_SELECT, env, timeoutMs))) {
+      return {
+        found: false,
+        problem: "xcodeMissing",
+        detail: `${systemGit} needs the Xcode Command Line Tools, which are not installed.`,
+      };
+    }
+  }
+  const version = await readVersion(path, env, timeoutMs);
+  if (version === null) {
+    return { found: false, problem: "notFound", detail: `${path} did not answer as Git.` };
+  }
+  if (compareGitVersions(version, MIN_GIT_VERSION) < 0) {
+    return { found: false, problem: "tooOld", detail: tooOldDetail(path, version) };
+  }
+  return { found: true, path, version: formatGitVersion(version) };
+}
+
+function tooOldDetail(path: string, version: GitVersion): string {
+  return `Git ${formatGitVersion(version)} at ${path} is older than ${formatGitVersion(MIN_GIT_VERSION)}, the oldest version Treepeek supports.`;
 }
 
 /**

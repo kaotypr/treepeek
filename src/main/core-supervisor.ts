@@ -28,6 +28,8 @@ export interface CoreSupervisorOptions {
   stableAfterMs?: number;
   /** How long `validatePaths` waits for the core service before answering "not in a scan". */
   validateTimeoutMs?: number;
+  /** How long `probeGit` waits for the core service. */
+  probeTimeoutMs?: number;
 }
 
 interface PendingValidation {
@@ -67,6 +69,11 @@ export class CoreSupervisor {
   #stableTimer: NodeJS.Timeout | null = null;
   #validationId = 0;
   readonly #validations = new Map<number, PendingValidation>();
+  #probeId = 0;
+  readonly #probes = new Map<
+    number,
+    { child: UtilityProcess; finish(state: GitState | null): void }
+  >();
 
   constructor(options: CoreSupervisorOptions) {
     this.#options = {
@@ -75,6 +82,7 @@ export class CoreSupervisor {
       backoffMs: [1_000, 2_000, 5_000],
       stableAfterMs: 30_000,
       validateTimeoutMs: 5_000,
+      probeTimeoutMs: 15_000,
       ...options,
     };
     this.#gitPathOverride = options.gitPathOverride ?? null;
@@ -110,6 +118,53 @@ export class CoreSupervisor {
     // Sent even before `core.ready`: the service handles messages in order, so this lands
     // after the `core.init` that carried the old value.
     this.#child?.postMessage({ type: "settings.gitPath", path } satisfies MainToCore);
+  }
+
+  /**
+   * Runs discovery again with the same override ("Try again", "Detect again"): git may
+   * have been installed since. The result arrives through `onGitState`.
+   */
+  detectGitAgain(): void {
+    this.#child?.postMessage({
+      type: "settings.gitPath",
+      path: this.#gitPathOverride,
+    } satisfies MainToCore);
+  }
+
+  /**
+   * Asks the core service whether one binary is a usable git, without making it the one
+   * Treepeek runs. Answers why not when the service is not running or does not answer.
+   */
+  probeGit(path: string): Promise<GitState> {
+    const child = this.#child;
+    if (!child || !this.#ready) {
+      return Promise.resolve({
+        found: false,
+        problem: "notFound",
+        detail: "The background service is not running; try again in a moment.",
+      });
+    }
+    this.#probeId += 1;
+    const id = this.#probeId;
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        this.#options.log.warn("git.probe timed out", { id });
+        finish(null);
+      }, this.#options.probeTimeoutMs);
+      const finish = (state: GitState | null) => {
+        if (!this.#probes.delete(id)) return;
+        clearTimeout(timer);
+        resolve(
+          state ?? {
+            found: false,
+            problem: "notFound",
+            detail: "The background service did not answer.",
+          },
+        );
+      };
+      this.#probes.set(id, { child, finish });
+      child.postMessage({ type: "git.probe", id, path } satisfies MainToCore);
+    });
   }
 
   /** Called with every git discovery result the core service reports. */
@@ -257,12 +312,20 @@ export class CoreSupervisor {
         pending.finish(message.valid.length === pending.count ? message.valid : null);
         return;
       }
+      case "git.probe": {
+        const pending = this.#probes.get(message.id);
+        if (pending?.child === child) pending.finish(message.state);
+        return;
+      }
     }
   }
 
-  /** Answers every pending `validatePaths` sent to `child` with "not in a scan". */
+  /** Answers every pending `validatePaths` (and `probeGit`) sent to `child` with "no". */
   #failValidations(child: UtilityProcess | null): void {
     for (const pending of [...this.#validations.values()]) {
+      if (child === null || pending.child === child) pending.finish(null);
+    }
+    for (const pending of [...this.#probes.values()]) {
       if (child === null || pending.child === child) pending.finish(null);
     }
   }

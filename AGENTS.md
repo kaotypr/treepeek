@@ -66,49 +66,54 @@ the code to the process that owns it.
 
 ### Where things live
 
-| Concern                                                                     | File                                                                            |
-| --------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
-| IPC contract (every channel), error codes                                   | `src/shared/ipc/contract.ts`, `src/shared/ipc/result.ts`                        |
-| Main ↔ core and port message schemas                                        | `src/shared/ipc/messages.ts`                                                    |
-| Window creation and navigation guards                                       | `src/main/windows.ts` (`createWindow`, `guardWebContents`)                      |
-| One window per folder, the welcome window, restoring windows and layouts    | `src/main/app-windows.ts` (`AppWindows`)                                        |
-| Opening folders: dialog, Open Recent, drops on a window or the Dock         | `src/main/folders.ts`; the preload reads a dropped folder's path                |
-| Native menu (File › Open Folder…, Open Recent)                              | `src/main/menu.ts`                                                              |
-| `app://` protocol and the CSP                                               | `src/main/protocol.ts`, plus the meta tag in `src/renderer/index.html`          |
-| Trusted-sender check, permissions, startup                                  | `src/main/index.ts`                                                             |
-| Main call routing and validation                                            | `src/main/router.ts`, `src/main/ipc.ts` (`handleMain`)                          |
-| Core service lifecycle and restarts                                         | `src/main/core-supervisor.ts`                                                   |
-| Core call routing, validation, cancellation                                 | `src/core/rpc.ts` (`CoreRpc`)                                                   |
-| Core sessions and the path rule                                             | `src/core/sessions/` (`session.ts`, `path-rule.ts`)                             |
-| Core call handlers (scan, comparisons, diffs, start overrides)              | `src/core/handlers/`                                                            |
-| Running git: `runGit`, `gitArgs`, hardening, the queue                      | `src/core/git/run.ts`, `src/core/git/queue.ts`, `src/core/git/env.ts`           |
-| The git allowlist (subcommands and refused options)                         | `src/core/git/guard.ts`                                                         |
-| Finding git, the minimum version, the login `PATH`                          | `src/core/git/discover.ts`, `src/shared/domain/git.ts`, `src/main/shell-env.ts` |
-| Switching off a repository's own filter drivers                             | `src/core/git/untrusted-config.ts`                                              |
-| Git output parsers                                                          | `src/core/git/parse/`                                                           |
-| Long-lived `cat-file` and `hash-object` processes                           | `src/core/git/cat-file.ts`, `src/core/git/hash-object.ts`                       |
-| The scan (walk, validation, checkouts, timeline)                            | `src/core/scan/`                                                                |
-| Comparison kinds, file lists, `resultHash`                                  | `src/core/compare/`                                                             |
-| One file's diff (patch, contents, limits)                                   | `src/core/diff/`                                                                |
-| Local store (worktree identity, start overrides)                            | `src/core/store/`                                                               |
-| Caches and per-repository state shared by sessions                          | `src/core/cache/` (`CoreState` in `shared-state.ts`)                            |
-| The preload API                                                             | `src/preload/index.ts`, its type in `src/shared/ipc/api.ts`                     |
-| Settings file                                                               | `src/main/settings.ts`, schema in `src/shared/settings.ts`                      |
-| Logger and redaction                                                        | `src/shared/log.ts`                                                             |
-| Domain types                                                                | `src/shared/domain/`                                                            |
-| Unified-patch parser                                                        | `src/shared/diff/parse-patch.ts`                                                |
-| Diff viewer (`DiffView`, the `@pierre/diffs` adapter, the highlight worker) | `src/renderer/diff-view/`; why this library: `docs/decisions/diff-viewer.md`    |
-| Review screen: window shell, welcome window                                 | `src/renderer/app/` (`ScanWindow.tsx`), `src/renderer/screens/welcome/`         |
-| Review screen panels: toolbar, navigator, preview, timeline                 | `src/renderer/panels/`                                                          |
-| Core data in the renderer: IPC client, query keys, the scan stream, hooks   | `src/renderer/data/` (`keys.ts`, `scan-stream.ts`, `hooks/`)                    |
-| UI state (selection, comparison, layout), saved per window                  | `src/renderer/state/ui-store.ts`                                                |
-| Commands and in-window shortcuts                                            | `src/renderer/commands/` (`registry.ts`, `keymap.ts`)                           |
-| Comparison labels and hints                                                 | `src/shared/domain/comparison-hints.ts`                                         |
-| Diff lab (development only; never in `bun run build`)                       | `src/renderer/dev/diff-lab/`, fixtures from `scripts/make-diff-fixtures.ts`     |
-| Size limits, scan depth, git concurrency                                    | `src/shared/constants.ts`                                                       |
-| Color tokens (light and dark)                                               | `src/renderer/styles/tokens.css`, window background in `src/shared/theme.ts`    |
-| Fuses, signing, minimum macOS                                               | `electron-builder.yml`                                                          |
-| Repository fixtures for tests                                               | `tests/support/git-fixture.ts`                                                  |
+| Concern                                                                        | File                                                                                                        |
+| ------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------- |
+| IPC contract (every channel), error codes                                      | `src/shared/ipc/contract.ts`, `src/shared/ipc/result.ts`                                                    |
+| Main ↔ core and port message schemas                                           | `src/shared/ipc/messages.ts`                                                                                |
+| Window creation and navigation guards                                          | `src/main/windows.ts` (`createWindow`, `guardWebContents`)                                                  |
+| One window per folder, the welcome window, restoring windows and layouts       | `src/main/app-windows.ts` (`AppWindows`)                                                                    |
+| Opening folders: dialog, Open Recent, drops on a window or the Dock            | `src/main/folders.ts`; the preload reads a dropped folder's path                                            |
+| Native menu bar, its shortcuts, item enablement from the focused window        | `src/main/menu.ts` (`menuTemplate`, `applyCommandState`)                                                    |
+| "Open in…" (Finder, editor, terminal), the clipboard, app detection            | `src/main/open-in/` (`index.ts`, `editors.ts`, `terminals.ts`, `template.ts`)                               |
+| Settings and About windows (one each)                                          | `src/main/settings-window.ts`, `src/main/about.ts`, `SingletonWindow` in `windows.ts`                       |
+| Native open dialogs; end-to-end test hooks                                     | `src/main/dialogs.ts`, `src/main/test-hooks.ts`                                                             |
+| `app://` protocol and the CSP                                                  | `src/main/protocol.ts`, plus the meta tag in `src/renderer/index.html`                                      |
+| Trusted-sender check, permissions, startup                                     | `src/main/index.ts`                                                                                         |
+| Main call routing and validation                                               | `src/main/router.ts`, `src/main/ipc.ts` (`handleMain`)                                                      |
+| Core service lifecycle and restarts                                            | `src/main/core-supervisor.ts`                                                                               |
+| Core call routing, validation, cancellation                                    | `src/core/rpc.ts` (`CoreRpc`)                                                                               |
+| Core sessions and the path rule                                                | `src/core/sessions/` (`session.ts`, `path-rule.ts`)                                                         |
+| Core call handlers (scan, comparisons, diffs, start overrides)                 | `src/core/handlers/`                                                                                        |
+| Running git: `runGit`, `gitArgs`, hardening, the queue                         | `src/core/git/run.ts`, `src/core/git/queue.ts`, `src/core/git/env.ts`                                       |
+| The git allowlist (subcommands and refused options)                            | `src/core/git/guard.ts`                                                                                     |
+| Finding git (and checking a picked one), the minimum version, the login `PATH` | `src/core/git/discover.ts` (`discoverGit`, `probeGit`), `src/shared/domain/git.ts`, `src/main/shell-env.ts` |
+| Switching off a repository's own filter drivers                                | `src/core/git/untrusted-config.ts`                                                                          |
+| Git output parsers                                                             | `src/core/git/parse/`                                                                                       |
+| Long-lived `cat-file` and `hash-object` processes                              | `src/core/git/cat-file.ts`, `src/core/git/hash-object.ts`                                                   |
+| The scan (root check, walk, validation, checkouts, timeline)                   | `src/core/scan/` (`root.ts` names a folder that cannot be scanned)                                          |
+| Comparison kinds, file lists, `resultHash`                                     | `src/core/compare/`                                                                                         |
+| One file's diff (patch, contents, limits)                                      | `src/core/diff/`                                                                                            |
+| Local store (worktree identity, start overrides)                               | `src/core/store/`                                                                                           |
+| Caches and per-repository state shared by sessions                             | `src/core/cache/` (`CoreState` in `shared-state.ts`)                                                        |
+| The preload API                                                                | `src/preload/index.ts`, its type in `src/shared/ipc/api.ts`                                                 |
+| Settings file                                                                  | `src/main/settings.ts`, schema in `src/shared/settings.ts`                                                  |
+| Custom command templates (split without a shell)                               | `src/shared/command-template.ts`, `src/main/open-in/template.ts`                                            |
+| Logger and redaction                                                           | `src/shared/log.ts`                                                                                         |
+| Domain types                                                                   | `src/shared/domain/`                                                                                        |
+| Unified-patch parser                                                           | `src/shared/diff/parse-patch.ts`                                                                            |
+| Diff viewer (`DiffView`, the `@pierre/diffs` adapter, the highlight worker)    | `src/renderer/diff-view/`; why this library: `docs/decisions/diff-viewer.md`                                |
+| Review screen: window shell, welcome window                                    | `src/renderer/app/` (`ScanWindow.tsx`), `src/renderer/screens/welcome/`                                     |
+| Settings, About, git setup and scan error screens                              | `src/renderer/screens/` (`settings/`, `about/`, `git-setup/`, `scan-error/`)                                |
+| Review screen panels: toolbar, navigator, preview, timeline                    | `src/renderer/panels/`                                                                                      |
+| Core data in the renderer: IPC client, query keys, the scan stream, hooks      | `src/renderer/data/` (`keys.ts`, `scan-stream.ts`, `hooks/`)                                                |
+| UI state (selection, comparison, layout), saved per window                     | `src/renderer/state/ui-store.ts`                                                                            |
+| Commands and in-window shortcuts; the command ids                              | `src/renderer/commands/` (`registry.ts`, `keymap.ts`, `menu-state.ts`), `src/shared/commands.ts`            |
+| Comparison labels and hints                                                    | `src/shared/domain/comparison-hints.ts`                                                                     |
+| Diff lab (development only; never in `bun run build`)                          | `src/renderer/dev/diff-lab/`, fixtures from `scripts/make-diff-fixtures.ts`                                 |
+| Size limits, scan depth, git concurrency                                       | `src/shared/constants.ts`                                                                                   |
+| Color tokens (light and dark)                                                  | `src/renderer/styles/tokens.css`, window background in `src/shared/theme.ts`                                |
+| Fuses, signing, minimum macOS                                                  | `electron-builder.yml`                                                                                      |
+| Repository fixtures for tests                                                  | `tests/support/git-fixture.ts`                                                                              |
 
 ## IPC rules
 
@@ -194,10 +199,13 @@ These carry Electron's security checklist into this codebase. Breaking one is a 
 - Comments say why, not what. English everywhere: code, comments, tests, commit messages.
 - UI uses the color tokens, never hard-coded colors, and must work in both themes at WCAG
   AA contrast. Prefer the Base UI components in `src/renderer/components/ui`.
-- Every window action is a command (`renderer/commands/registry.ts`), and shortcuts map key
-  presses to command ids (`keymap.ts`). Do not add key handlers that act on their own: the
-  native menu runs the same commands, so a key and a menu item can never disagree. Lists
-  and trees handle their own arrow keys.
+- Every window action is a command (`renderer/commands/registry.ts`, ids in
+  `shared/commands.ts`), and shortcuts map key presses to command ids (`keymap.ts`). Do not
+  add key handlers that act on their own: the native menu runs the same commands
+  (`command.run`), so a key and a menu item can never disagree. Every shortcut also appears
+  in a menu with the same accelerator (`COMMAND_ACCELERATORS` in `main/menu.ts`); Chromium
+  gives ⌘ keys to the page first and the keymap takes the key press when its command runs,
+  so the menu never runs it a second time. Lists and trees handle their own arrow keys.
 - Core data reaches components through TanStack Query (`renderer/data/`), keyed by
   `keys.ts`; UI choices live in the Zustand store. A key that live refresh will need to
   invalidate is built in `keys.ts`, never inline.
@@ -220,6 +228,13 @@ These carry Electron's security checklist into this codebase. Breaking one is a 
   launcher): windows are transparent, click-through and never focused, and the app has no
   Dock icon, so a run never interrupts the person at the machine. Tests must not depend on
   the window having OS focus.
+- End-to-end tests never open Finder, an editor or a terminal, never write the clipboard,
+  and never show a native dialog. `launchApp({ env })` sets the test-only hooks in
+  `src/main/test-hooks.ts` (honoured only with `NODE_ENV=test`): `TREEPEEK_E2E_LAUNCH_LOG`
+  records what "Open in…" would run, `TREEPEEK_E2E_DIALOG` answers open dialogs,
+  `TREEPEEK_E2E_MENU` clicks native menu items, and `TREEPEEK_E2E_GIT_OVERRIDE_ONLY` limits
+  git discovery to the override. Each run's page announces its commands as
+  `treepeek:command` events, which tests count.
 - Every bug fix comes with a test that fails without the fix.
 - A test must be able to fail: assert behaviour, not that code ran.
 
