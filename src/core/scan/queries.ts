@@ -4,6 +4,7 @@ import type { RepositoryResources } from "../cache/shared-state";
 import { GitError, GitParseError } from "../git/errors";
 import { parseNulList } from "../git/parse/ls-files";
 import { parseRawDiff, type RawEntry } from "../git/parse/raw-diff";
+import type { GitPriority } from "../git/queue";
 import { runGit } from "../git/run";
 
 /**
@@ -16,6 +17,17 @@ export interface QueryOptions {
   signal: AbortSignal;
   /** Default `GIT_SCAN_TIMEOUT_MS`: the scan is the main caller. */
   timeoutMs?: number;
+  /** Queue lane for a query not answered yet. Default `normal`. */
+  priority?: GitPriority;
+}
+
+/** The `runGit` options of a query's one git call. */
+function gitOptions(signal: AbortSignal, options: QueryOptions) {
+  return {
+    signal,
+    timeoutMs: options.timeoutMs ?? GIT_SCAN_TIMEOUT_MS,
+    ...(options.priority ? { priority: options.priority } : {}),
+  };
 }
 
 /** A commit id from git's own output; anything else would be a bug, never an option. */
@@ -41,7 +53,7 @@ export function isAncestor(
       const output = await runGit(
         repo.commonDir,
         ["merge-base", "--is-ancestor", ancestor, descendant],
-        { signal, timeoutMs: options.timeoutMs ?? GIT_SCAN_TIMEOUT_MS, okExitCodes: [0, 1] },
+        { ...gitOptions(signal, options), okExitCodes: [0, 1] },
       );
       return output.code === 0;
     },
@@ -65,10 +77,7 @@ export function commitCount(
       const output = await runGit(
         repo.commonDir,
         ["rev-list", "--count", `${left}..${right}`, "--"],
-        {
-          signal,
-          timeoutMs: options.timeoutMs ?? GIT_SCAN_TIMEOUT_MS,
-        },
+        gitOptions(signal, options),
       );
       const text = output.stdout.toString("utf8").trim();
       if (!/^\d+$/.test(text)) throw new GitParseError("rev-list --count", `got "${text}"`);
@@ -94,7 +103,7 @@ export function changedPaths(
       const output = await runGit(
         repo.commonDir,
         ["diff", "--name-only", "-z", left, right, "--"],
-        { signal, timeoutMs: options.timeoutMs ?? GIT_SCAN_TIMEOUT_MS },
+        gitOptions(signal, options),
       );
       return parseNulList(output.stdout);
     },
@@ -119,8 +128,7 @@ export function mergeBase(
     pairKey(a, b),
     async (signal) => {
       const output = await runGit(repo.commonDir, ["merge-base", a, b], {
-        signal,
-        timeoutMs: options.timeoutMs ?? GIT_SCAN_TIMEOUT_MS,
+        ...gitOptions(signal, options),
         okExitCodes: [0, 1],
       });
       if (output.code === 1) return null;
@@ -158,10 +166,11 @@ export function rawDiff(
   return repo.cache.immutable.rawDiffs.get(
     pairKey(left, right),
     async (signal) => {
-      const output = await runGit(repo.commonDir, ["diff", ...RAW_DIFF_FLAGS, left, right, "--"], {
-        signal,
-        timeoutMs: options.timeoutMs ?? GIT_SCAN_TIMEOUT_MS,
-      });
+      const output = await runGit(
+        repo.commonDir,
+        ["diff", ...RAW_DIFF_FLAGS, left, right, "--"],
+        gitOptions(signal, options),
+      );
       return parseRawDiff(output.stdout);
     },
     options.signal,

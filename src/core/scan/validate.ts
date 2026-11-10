@@ -28,6 +28,8 @@ export interface Validation {
   problems: ScanProblem[];
   /** Git's worktree list for every repository with a valid candidate, by common dir. */
   worktreeLists: Map<string, readonly WorktreeEntry[]>;
+  /** The real paths of the checkouts in each of those lists, by common dir. */
+  listed: Map<string, ReadonlySet<string>>;
 }
 
 interface Identified {
@@ -64,12 +66,14 @@ export async function validateCandidates(
   }
 
   const worktreeLists = new Map<string, readonly WorktreeEntry[]>();
+  const listedPaths = new Map<string, ReadonlySet<string>>();
   const accepted = new Map<string, ValidCandidate>();
   await Promise.all(
     [...byRepository].map(async ([commonDir, items]) => {
       const repo = ctx.repository(commonDir);
       try {
         const listed = await listedCheckouts(repo, ctx, worktreeLists);
+        listedPaths.set(commonDir, listed);
         for (const item of items) {
           if (!listed.has(item.path)) continue;
           accepted.set(item.path, {
@@ -94,7 +98,7 @@ export async function validateCandidates(
     return item ? [item] : [];
   });
   problems.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
-  return { valid, problems, worktreeLists };
+  return { valid, problems, worktreeLists, listed: listedPaths };
 }
 
 async function identify(

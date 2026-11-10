@@ -1,9 +1,12 @@
 import { MAX_SCAN_DEPTH } from "../../shared/constants";
 import { coreCalls, coreEvents, err, ok } from "../../shared/ipc";
 import { requireGit } from "../git/runtime";
+import { scheduleStatusForScan } from "../review/background";
+import { pruneAfterScan } from "../review/prune";
 import { checkScanRoot } from "../scan/root";
+import type { ScanResult } from "../scan/scan";
 import type { WalkResult } from "../scan/walk";
-import type { ScanRun, Session } from "../sessions/session";
+import type { ScanRun, Session, SessionServices } from "../sessions/session";
 import { failWith } from "./errors";
 import { scanRootError } from "./session";
 
@@ -13,8 +16,11 @@ import { scanRootError } from "./session";
  * final `scan.done` reach the window after it. A newer `scan.start`, `request.cancel` with
  * this `requestId`, or the session closing stops the scan; a stopped scan sends no
  * `scan.done`.
+ *
+ * After `scan.done`, identities Git no longer lists are pruned, and every checkout's review
+ * status is computed in the background and sent as `review.changed`.
  */
-export function registerScanHandlers(session: Session): void {
+export function registerScanHandlers(session: Session, services: SessionServices): void {
   session.rpc.onCall(coreCalls["scan.start"], async (ctx, _request, signal) => {
     const scanRoot = session.scanRoot;
     if (scanRoot === null) {
@@ -49,7 +55,22 @@ export function registerScanHandlers(session: Session): void {
         durationMs: result.durationMs,
         problems: result.problems,
       });
+      prune(session, services, result);
+      void scheduleStatusForScan(session, services, result.checkouts);
     });
     return ok({ scanRoot, folders: walked.folders, depthLimit: MAX_SCAN_DEPTH });
   });
+}
+
+function prune(session: Session, services: SessionServices, result: ScanResult): void {
+  const store = services.store();
+  if (!store) return;
+  try {
+    const pruned = pruneAfterScan(store, result);
+    if (pruned.worktrees > 0 || pruned.snapshots > 0) {
+      session.log.info("pruned review data", pruned);
+    }
+  } catch (error) {
+    session.log.warn("could not prune review data", { error });
+  }
 }

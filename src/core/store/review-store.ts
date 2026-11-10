@@ -102,6 +102,8 @@ export interface ReviewStore {
   putSnapshot(hash: string, bytes: Uint8Array): void;
   /** The snapshot's content, or `null` when it is not kept. */
   getSnapshot(hash: string): Buffer | null;
+  /** Whether a snapshot is kept under `hash`, without reading it. */
+  hasSnapshot(hash: string): boolean;
   snapshotUsage(): SnapshotUsage;
   /** Deletes every snapshot no mark references. Answers how many went. */
   deleteUnreferencedSnapshots(): number;

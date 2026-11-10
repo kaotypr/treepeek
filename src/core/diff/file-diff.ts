@@ -99,17 +99,17 @@ export async function buildFileDiff(
     listed.comparison,
     change,
   );
-  const merged = merge(patch.sections);
+  const merged = mergeSections(patch.sections);
   const content = { checkoutPath, catFile: ctx.repo.catFile, signal: ctx.signal };
   const [left, right] = await Promise.all([
     readSide(content, change, "left", { gitlink: merged.oldMode === GITLINK }),
     readSide(content, change, "right", { gitlink: merged.newMode === GITLINK }),
   ]);
-  return assemble(change, merged, patch.truncated, patch.stats, left, right);
+  return assembleFileDiff(change, merged, patch.truncated, patch.stats, left, right);
 }
 
 /** The file's sections as one: a type change's deletion and addition together. */
-interface MergedPatch {
+export interface MergedPatch {
   hunks: Hunk[];
   stats: DiffStats;
   binary: boolean;
@@ -118,7 +118,7 @@ interface MergedPatch {
   newMode: string | undefined;
 }
 
-function merge(sections: readonly ParsedPatch[]): MergedPatch {
+export function mergeSections(sections: readonly ParsedPatch[]): MergedPatch {
   const merged: MergedPatch = {
     hunks: [],
     stats: { added: 0, removed: 0 },
@@ -139,8 +139,12 @@ function merge(sections: readonly ParsedPatch[]): MergedPatch {
   return merged;
 }
 
-function assemble(
-  change: FileChange,
+/**
+ * The `FileDiff` for a file's patch and both sides' contents, applying the diff pipeline's
+ * binary detection and size limits.
+ */
+export function assembleFileDiff(
+  change: Pick<FileChange, "path" | "oldPath" | "status" | "resultHash">,
   merged: MergedPatch,
   truncated: boolean,
   fullStats: DiffStats | undefined,

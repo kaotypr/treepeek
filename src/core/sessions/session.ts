@@ -15,6 +15,8 @@ export interface SessionServices {
   readonly state: CoreState;
   /** The local store, or `null` when it is not open (scans still run; overrides fail). */
   store(): ReviewStore | null;
+  /** Every open session, so a change one window makes reaches the others. */
+  sessions(): readonly Session[];
 }
 
 /** The paths one scan produced, for the path rule. */
@@ -61,6 +63,7 @@ export class Session {
   #last: ScanView | null = null;
   #current: ScanView | null = null;
   #scanController: AbortController | null = null;
+  #background: AbortController | null = null;
   readonly #repositories = new Set<string>();
   readonly #checkouts = new Set<string>();
   #closed = false;
@@ -99,6 +102,7 @@ export class Session {
   open(scanRoot: string): string {
     this.#assertOpen();
     this.#stopScan();
+    this.#stopBackground();
     if (scanRoot !== this.#scanRoot) {
       this.#releaseAll();
       this.#scanRoot = scanRoot;
@@ -119,6 +123,7 @@ export class Session {
     const root = this.#scanRoot;
     if (root === null) throw new GitError("invalidRequest", "The session has no scan root.");
     this.#stopScan();
+    this.#stopBackground();
     const controller = new AbortController();
     this.#scanController = controller;
     const signal = AbortSignal.any([callSignal, controller.signal]);
@@ -189,6 +194,29 @@ export class Session {
       }
     }
     return false;
+  }
+
+  /** The checkout the session's scan holds at `realPath` (already a real path), if any. */
+  checkoutAt(realPath: string): ScannedCheckout | undefined {
+    if (this.#closed) return undefined;
+    for (const view of this.#views()) {
+      const found = view.checkouts.get(realPath);
+      if (found) return found;
+    }
+    return undefined;
+  }
+
+  /**
+   * A signal for background work on the session's scan (review status after a scan). It
+   * aborts when this is called again, a new scan starts, the scan root changes, or the
+   * session closes.
+   */
+  startBackground(): AbortSignal {
+    this.#stopBackground();
+    const controller = new AbortController();
+    this.#background = controller;
+    if (this.#closed) controller.abort();
+    return controller.signal;
   }
 
   /** The scanned checkout whose path `path` resolves to exactly, or `null`. */
@@ -265,6 +293,7 @@ export class Session {
     if (this.#closed) return;
     this.#closed = true;
     this.#stopScan();
+    this.#stopBackground();
     this.rpc.close();
     this.#releaseAll();
     this.#current = null;
@@ -309,6 +338,12 @@ export class Session {
     const controller = this.#scanController;
     this.#scanController = null;
     this.#current = null;
+    controller?.abort();
+  }
+
+  #stopBackground(): void {
+    const controller = this.#background;
+    this.#background = null;
     controller?.abort();
   }
 

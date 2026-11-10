@@ -233,6 +233,11 @@ export class JsonReviewStore implements ReviewStore {
     return this.#snapshots.read(hash);
   }
 
+  hasSnapshot(hash: string): boolean {
+    this.#check();
+    return this.#snapshots.has(hash);
+  }
+
   snapshotUsage(): SnapshotUsage {
     this.#check();
     const files = this.#snapshots.list();

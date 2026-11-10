@@ -52,8 +52,9 @@ export class SnapshotFolder {
     mkdirSync(dir, { recursive: true, mode: 0o700 });
   }
 
+  /** Whether the snapshot is there; `false` for a name no snapshot can have. */
   has(hash: string): boolean {
-    return this.#stat(hash) !== null;
+    return NAME.test(hash) && this.#stat(hash) !== null;
   }
 
   /** Writes the snapshot unless it is there already; answers its size on disk. */
@@ -73,7 +74,9 @@ export class SnapshotFolder {
     return bytes.byteLength;
   }
 
+  /** The snapshot's bytes, or `null` when it is not there or `hash` cannot name one. */
   read(hash: string): Buffer | null {
+    if (!NAME.test(hash)) return null;
     try {
       return readFileSync(this.#file(hash));
     } catch (error) {

@@ -257,6 +257,11 @@ export class SqliteReviewStore implements ReviewStore {
     return bytes;
   }
 
+  hasSnapshot(hash: string): boolean {
+    this.#check();
+    return this.#statements.getSnapshot.get(hash) !== undefined && this.#snapshots.has(hash);
+  }
+
   snapshotUsage(): SnapshotUsage {
     this.#check();
     const row = this.#statements.snapshotUsage.get();

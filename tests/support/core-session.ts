@@ -98,8 +98,8 @@ export interface Harness {
 /** Sessions sharing one `CoreState` and the given store (`null`: none). */
 export function harness(store: () => ReviewStore | null = () => null): Harness {
   const state = new CoreState();
-  const services: SessionServices = { state, store };
-  const registry = new SessionRegistry(quietLogger(), services, (session) =>
+  const services: SessionServices = { state, store, sessions: () => registry.all() };
+  const registry: SessionRegistry = new SessionRegistry(quietLogger(), services, (session) =>
     registerSessionCalls(session, services),
   );
   const ports: MessagePort[] = [];

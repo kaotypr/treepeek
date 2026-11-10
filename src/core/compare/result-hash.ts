@@ -3,6 +3,7 @@ import { join } from "node:path";
 import type { FileChange } from "../../shared/domain/compare";
 import { GitError } from "../git/errors";
 import type { HashObjectBatch } from "../git/hash-object";
+import type { GitPriority } from "../git/queue";
 import { runGit } from "../git/run";
 import { sniffBinary } from "./sniff";
 
@@ -25,6 +26,8 @@ export interface ResultHashContext {
   checkoutPath: string;
   hashObject: HashObjectBatch;
   signal: AbortSignal;
+  /** Queue lane for hashing. Default `normal`. */
+  priority?: GitPriority;
 }
 
 const ZERO_OID = /^0+$/;
@@ -69,7 +72,10 @@ export async function fillResultHashes(
 
   const hashes =
     toHash.length > 0
-      ? await ctx.hashObject.hash(toHash, { signal: ctx.signal })
+      ? await ctx.hashObject.hash(toHash, {
+          signal: ctx.signal,
+          ...(ctx.priority ? { priority: ctx.priority } : {}),
+        })
       : new Map<string, string>();
   const kept: ListedFile[] = [];
   for (const file of working) {
@@ -114,7 +120,11 @@ async function submoduleHead(ctx: ResultHashContext, path: string): Promise<stri
     const output = await runGit(
       folder,
       ["rev-parse", "--path-format=absolute", "--show-toplevel", "--verify", "HEAD"],
-      { signal: ctx.signal, okExitCodes: [0, 128] },
+      {
+        signal: ctx.signal,
+        okExitCodes: [0, 128],
+        ...(ctx.priority ? { priority: ctx.priority } : {}),
+      },
     );
     const [topLevel = "", head = ""] = output.stdout.toString("utf8").split("\n");
     // Without its own checkout, Git answers for the outer repository instead.
