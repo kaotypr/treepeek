@@ -1,5 +1,7 @@
 import { forwardRef } from "react";
+import type { ReviewStatus } from "../../../shared/domain/review";
 import { type Checkout, isKnownStart, type TimelineEntry } from "../../../shared/domain/scan";
+import { ProgressRing } from "../../components/ProgressRing";
 import {
   quantity,
   relationLabel,
@@ -13,7 +15,8 @@ import { cn } from "../../lib/utils";
 
 /**
  * One timeline event (the prototype's compact row): its number, repository and observed
- * time; the folder; its relation to the previous checkout of the same repository; counts.
+ * time; the folder and its review progress; its relation to the previous checkout of the
+ * same repository; counts.
  */
 export const TimelineRow = forwardRef<
   HTMLDivElement,
@@ -21,11 +24,12 @@ export const TimelineRow = forwardRef<
     scan: ScanData;
     entry: TimelineEntry;
     checkout: Checkout;
+    review: ReviewStatus | undefined;
     selected: boolean;
     onSelect: () => void;
     id: string;
   }
->(function TimelineRow({ scan, entry, checkout, selected, onSelect, id }, ref) {
+>(function TimelineRow({ scan, entry, checkout, review, selected, onSelect, id }, ref) {
   const start = checkout.start;
   const relation = relationLabel(scan, entry);
   const folder = relativePath(scan.scanRoot, checkout.path);
@@ -70,9 +74,15 @@ export const TimelineRow = forwardRef<
           <span className="ml-auto shrink-0">Unknown</span>
         )}
       </div>
-      <p className="mt-1 break-all font-semibold text-foreground" data-testid="timeline-folder">
-        {folder}
-      </p>
+      <div className="mt-1 flex items-start gap-1.5">
+        <p
+          className="min-w-0 flex-1 break-all font-semibold text-foreground"
+          data-testid="timeline-folder"
+        >
+          {folder}
+        </p>
+        <ProgressRing status={review} className="mt-0.5" />
+      </div>
       <div className="mt-0.5 flex items-baseline gap-2 text-muted-foreground">
         <span className="min-w-0 flex-1 truncate" title={relation} data-testid="timeline-relation">
           {relation}

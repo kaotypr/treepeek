@@ -4,9 +4,14 @@
  * window. Sent only when the answer changes, at most once per task.
  */
 
-import { type CheckableCommandId, COMMAND_IDS, type CommandId } from "../../shared/commands";
+import {
+  CHECKABLE_COMMAND_IDS,
+  type CheckableCommandId,
+  COMMAND_IDS,
+  type CommandId,
+} from "../../shared/commands";
 import type { UiState } from "../state/ui-store";
-import { isCommandEnabled, onCommandsChange } from "./registry";
+import { isCommandChecked, isCommandEnabled, onCommandsChange } from "./registry";
 
 /** The menu items a window's layout checks. */
 export function checkedCommands(ui: UiState): CheckableCommandId[] {
@@ -39,7 +44,10 @@ export function startCommandReport(options: CommandReportOptions): () => void {
     scheduled = false;
     if (stopped) return;
     const enabled = COMMAND_IDS.filter((id) => isCommandEnabled(id));
-    const checked = options.checked();
+    // The layout's check marks, and those a command reports itself (Go › Viewed).
+    const checked = [
+      ...new Set([...options.checked(), ...CHECKABLE_COMMAND_IDS.filter(isCommandChecked)]),
+    ];
     const key = `${enabled.join(",")}|${checked.join(",")}`;
     if (key === last) return;
     last = key;

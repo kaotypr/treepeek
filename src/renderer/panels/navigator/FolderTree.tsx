@@ -1,6 +1,8 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { type KeyboardEvent, useCallback, useEffect, useRef, useState } from "react";
 import { ChevronIcon } from "../../components/icons";
+import { ProgressRing } from "../../components/ProgressRing";
+import { useCachedReviewStatus } from "../../data/hooks/useReviewStatus";
 import { useScan } from "../../data/hooks/useScan";
 import { folderAncestors, quantity, repositoryName, type ScanData } from "../../data/scan-model";
 import { cn } from "../../lib/utils";
@@ -170,12 +172,18 @@ export function FolderTree() {
               <span className="min-w-0 flex-1 truncate">{row.name}</span>
               <span className="sr-only">{row.checkoutPath === null ? ", " : ", checkout of "}</span>
               <span className="shrink-0 text-muted-foreground">{row.badge}</span>
+              {row.checkoutPath !== null && <RowProgress checkoutPath={row.checkoutPath} />}
             </div>
           );
         })}
       </div>
     </div>
   );
+}
+
+/** A checkout row's review progress ring, from the cache. */
+function RowProgress({ checkoutPath }: { checkoutPath: string }) {
+  return <ProgressRing status={useCachedReviewStatus(checkoutPath)} />;
 }
 
 interface TreeRow extends FolderRow {

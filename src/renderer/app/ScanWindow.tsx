@@ -1,14 +1,23 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { Group, type Layout, Panel, Separator } from "react-resizable-panels";
+import type { FileChange } from "../../shared/domain/compare";
 import type { FileDiff } from "../../shared/domain/diff";
+import { reviewProgress } from "../../shared/domain/review";
 import type { Result } from "../../shared/ipc/result";
-import { installKeymap } from "../commands/keymap";
+import { installKeymap, isTextField } from "../commands/keymap";
 import { checkedCommands, startCommandReport } from "../commands/menu-state";
 import { useCommand } from "../commands/registry";
 import { main } from "../data/client";
 import { useLatestEvent } from "../data/events";
 import { firstChangedLine } from "../data/first-changed-line";
+import {
+  undoMarks,
+  useMarkAll,
+  useMarkFiles,
+  useReviewEvents,
+  useReviewStatus,
+} from "../data/hooks/useReviewStatus";
 import { ScanContext, type ScanContextValue, useScan, useScanContext } from "../data/hooks/useScan";
 import {
   matchesSelection,
@@ -17,6 +26,7 @@ import {
   useVisibleFiles,
 } from "../data/hooks/useSelection";
 import { comparisonKey, keys } from "../data/keys";
+import { reviewFileOf } from "../data/review-model";
 import { orderedCheckouts, repositoryNeighbours, type ScanData } from "../data/scan-model";
 import { type ScanStream, startScan } from "../data/scan-stream";
 import { Navigator } from "../panels/navigator/Navigator";
@@ -26,6 +36,7 @@ import { TimelinePanel } from "../panels/timeline/TimelinePanel";
 import { GitSetup } from "../screens/git-setup/GitSetup";
 import { ScanError } from "../screens/scan-error/ScanError";
 import { persistUi, uiStore, useUi } from "../state/ui-store";
+import { undoStore } from "../state/undo";
 import { ConnectionBanner } from "./ConnectionBanner";
 import { NoticeBar } from "./NoticeBar";
 
@@ -45,9 +56,13 @@ export function ScanWindow({ scanRoot }: { scanRoot: string }) {
     const stream = startScan(queryClient, scanRoot, {
       onSettled: (scan) => {
         keepSelection(scan);
-        // File lists are fetched again once the scan that may have changed them is done,
-        // and only then: a restarted core service knows a checkout only once it is scanned.
-        if (scan.phase === "done") void queryClient.invalidateQueries({ queryKey: ["comparison"] });
+        // File lists and review progress are fetched again once the scan that may have
+        // changed them is done, and only then: a restarted core service knows a checkout only
+        // once it is scanned.
+        if (scan.phase === "done") {
+          void queryClient.invalidateQueries({ queryKey: ["comparison"] });
+          void queryClient.invalidateQueries({ queryKey: keys.reviewStatuses() });
+        }
       },
     });
     streamRef.current = stream;
@@ -70,16 +85,34 @@ export function ScanWindow({ scanRoot }: { scanRoot: string }) {
       startCommandReport({
         send: (state) => void main().window.commands(state),
         checked: () => checkedCommands(uiStore.getState()),
-        subscribe: (listener) => uiStore.subscribe(listener),
+        subscribe: (listener) => {
+          const offUi = uiStore.subscribe(listener);
+          const offUndo = undoStore.subscribe(listener);
+          // Undo offers itself only outside text fields, which keep ⌘Z for typing.
+          window.addEventListener("focusin", listener);
+          window.addEventListener("focusout", listener);
+          return () => {
+            offUi();
+            offUndo();
+            window.removeEventListener("focusin", listener);
+            window.removeEventListener("focusout", listener);
+          };
+        },
       }),
     [],
   );
+  useReviewEvents();
 
-  // Settings › Review: the comparison the next selected checkout starts on.
+  // Settings › Review: the comparison the next selected checkout starts on, and whether
+  // file lists start with "Hide viewed" on.
   const settings = useLatestEvent("settings.changed");
   useEffect(() => {
     if (settings) uiStore.getState().setDefaultComparison(settings.defaultComparison);
   }, [settings]);
+  const hideViewedByDefault = settings?.hideViewedByDefault;
+  useEffect(() => {
+    if (hideViewedByDefault !== undefined) uiStore.getState().setHideViewed(hideViewedByDefault);
+  }, [hideViewedByDefault]);
 
   const git = useLatestEvent("git.state");
   const gitFound = git?.found;
@@ -315,7 +348,70 @@ function WindowCommands({ onRefresh }: { onRefresh: () => void }) {
   );
 
   useCheckoutCommands();
+  useReviewCommands(files);
   return null;
+}
+
+/**
+ * The review commands: the selected file's Viewed mark (V), Mark Viewed and Next (⌘↩),
+ * Mark All as Reviewed, Unmark All, and the undo of the last of those two (⌘Z).
+ */
+function useReviewCommands(files: readonly FileChange[]): void {
+  const queryClient = useQueryClient();
+  const { checkoutPath } = useSelectedComparison();
+  const status = useReviewStatus(checkoutPath).data;
+  const file = useSelectedFile();
+  const markFiles = useMarkFiles();
+  const markAll = useMarkAll();
+  const ui = uiStore.getState;
+  const reviewed = file && status ? reviewFileOf(status, file.path) : undefined;
+  const progress = status ? reviewProgress(status) : null;
+
+  const mark = (viewed: boolean) => {
+    if (checkoutPath && file) markFiles.mutate({ checkoutPath, paths: [file.path], viewed });
+  };
+
+  useCommand(
+    "file.toggleViewed",
+    () => mark(reviewed?.state !== "viewed"),
+    () => reviewed !== undefined,
+    () => reviewed?.state === "viewed",
+  );
+  useCommand(
+    "file.markViewedAndNext",
+    () => {
+      // The next file is taken before marking, as "Hide viewed" may hide this one after.
+      const index = files.findIndex((item) => matchesSelection(item, ui().selectedFile));
+      const next = index < 0 ? undefined : files[index + 1];
+      if (reviewed?.state !== "viewed") mark(true);
+      if (next) {
+        ui().selectFile({ path: next.path, ...(next.category ? { category: next.category } : {}) });
+      }
+    },
+    () => reviewed !== undefined,
+  );
+  useCommand(
+    "checkout.markAllReviewed",
+    () => {
+      if (checkoutPath) markAll.mutate({ checkoutPath, viewed: true });
+    },
+    () => progress !== null && !progress.empty && !progress.reviewed,
+  );
+  useCommand(
+    "checkout.unmarkAll",
+    () => {
+      if (checkoutPath) markAll.mutate({ checkoutPath, viewed: false });
+    },
+    () => status !== undefined && status.viewed + status.changedSinceViewed > 0,
+  );
+  useCommand(
+    "review.undo",
+    () => {
+      const entry = undoStore.getState().pop();
+      if (entry) void undoMarks(queryClient, entry);
+    },
+    () => undoStore.getState().entries.length > 0 && !isTextField(document.activeElement),
+  );
 }
 
 /** Reports a failed native action in the notice bar; a success says `done` when given. */

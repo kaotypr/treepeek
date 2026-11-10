@@ -14,6 +14,7 @@ import { compactDate, fullDate, shortCommit } from "../../lib/format";
 import { uiStore, useUi } from "../../state/ui-store";
 import { ComparisonPopover } from "./ComparisonPopover";
 import { OpenInMenu } from "./OpenInMenu";
+import { ReviewProgress } from "./ReviewProgress";
 import { StartOverrideDialog } from "./StartOverrideDialog";
 
 const linkButton =
@@ -21,7 +22,8 @@ const linkButton =
 
 /**
  * The selected checkout: repository and branch (with comparison settings), where it was
- * first seen from, its counts, and the previous and next checkout of the same repository.
+ * first seen from, its counts, its review progress (with the partial-scope note when no
+ * start is known), and the previous and next checkout of the same repository.
  */
 export function CheckoutDetails({ checkout }: { checkout: Checkout }) {
   const settingStart = useUi((state) => state.startDialogOpen);
@@ -123,6 +125,8 @@ export function CheckoutDetails({ checkout }: { checkout: Checkout }) {
           </span>
         )}
       </p>
+
+      <ReviewProgress checkoutPath={checkout.path} />
 
       {!isKnownStart(start) && (
         <p

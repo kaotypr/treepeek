@@ -2,13 +2,16 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { type KeyboardEvent, type ReactNode, useEffect, useId, useRef } from "react";
 import type { FileChange, FileStatus } from "../../../shared/domain/compare";
 import { COMPARISON_LABELS } from "../../../shared/domain/comparison-hints";
+import type { FileReviewState } from "../../../shared/domain/review";
 import { runCommand } from "../../commands/registry";
 import { isIpcFailure } from "../../data/client";
+import { useCachedReviewStatus, useMarkFiles } from "../../data/hooks/useReviewStatus";
 import {
   matchesSelection,
   useSelectedComparison,
   useVisibleFiles,
 } from "../../data/hooks/useSelection";
+import { reviewFileOf } from "../../data/review-model";
 import { quantity } from "../../data/scan-model";
 import { cn } from "../../lib/utils";
 import { uiStore, useUi } from "../../state/ui-store";
@@ -45,18 +48,33 @@ export function fileLabel(file: FileChange): string {
   return file.oldPath ? `${file.oldPath} → ${file.path}` : file.path;
 }
 
+const VIEWED_LABEL: Readonly<Record<FileReviewState, string>> = {
+  unviewed: "not viewed",
+  viewed: "viewed",
+  changedSinceViewed: "changed since viewed",
+};
+
 /**
  * The comparison's files: compact virtualized rows (a 5,000-file list scrolls like a short
  * one), the path ellipsized with the whole path on hover, the selected row wrapped. ↑ and ↓
  * move the selection; ⌘F filters.
+ *
+ * Each file of the review scope has a Viewed checkbox; a viewed file is dimmed, and one
+ * that changed since it was viewed has an amber badge. "Hide viewed" leaves viewed files
+ * out. The keyboard marks with V (the checkbox stays out of the tab order, as the list
+ * holds focus).
  */
 export function FileList() {
-  const { query, request } = useSelectedComparison();
+  const { query, request, checkoutPath } = useSelectedComparison();
   const files = useVisibleFiles();
   const total = query.data?.files.length ?? 0;
   const selection = useUi((state) => state.selectedFile);
   const filter = useUi((state) => state.fileFilter);
   const setFilter = useUi((state) => state.setFileFilter);
+  const hideViewed = useUi((state) => state.hideViewed);
+  const setHideViewed = useUi((state) => state.setHideViewed);
+  const review = useCachedReviewStatus(checkoutPath);
+  const mark = useMarkFiles();
   const filterFocusRequest = useUi((state) => state.filterFocusRequest);
   const filterRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -126,12 +144,25 @@ export function FileList() {
           className="h-6 min-w-0 flex-1 rounded-md border border-input bg-card px-2 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
           data-testid="file-filter"
         />
+        <button
+          type="button"
+          aria-pressed={hideViewed}
+          title="Hide files you marked Viewed"
+          onClick={() => setHideViewed(!hideViewed)}
+          className={cn(
+            "h-6 shrink-0 rounded-md border border-input px-1.5 text-xs outline-none hover:bg-hover focus-visible:ring-2 focus-visible:ring-ring",
+            hideViewed ? "bg-selection text-selection-foreground" : "bg-card",
+          )}
+          data-testid="hide-viewed"
+        >
+          Hide viewed
+        </button>
         <span
           className="shrink-0 text-muted-foreground text-xs"
           aria-live="polite"
           data-testid="file-count"
         >
-          {filter.trim() !== "" && comparison
+          {(filter.trim() !== "" || hideViewed) && comparison
             ? `${files.length} of ${total}`
             : quantity(total, "file")}
         </span>
@@ -180,6 +211,8 @@ export function FileList() {
               if (!file) return null;
               const selected = item.index === selectedIndex;
               const label = fileLabel(file);
+              const reviewed = reviewFileOf(review, file.path);
+              const state = reviewed?.state;
               return (
                 // biome-ignore lint/a11y/useFocusableInteractive: the listbox holds focus and points at the active row with aria-activedescendant
                 // biome-ignore lint/a11y/useKeyWithClickEvents: the listbox handles the keyboard for every row
@@ -192,13 +225,36 @@ export function FileList() {
                   aria-selected={selected}
                   title={label}
                   data-path={file.path}
+                  data-review={state}
                   onClick={() => uiStore.getState().selectFile(selectionOf(file))}
                   className={cn(
                     "absolute left-0 flex w-full cursor-default items-start gap-2 px-3 py-1 text-xs",
                     selected ? "bg-selection text-selection-foreground" : "hover:bg-hover",
+                    !selected && state === "viewed" && "text-muted-foreground",
                   )}
                   style={{ top: item.start, minHeight: ROW_HEIGHT }}
                 >
+                  {state === undefined || checkoutPath === null ? (
+                    <span aria-hidden="true" className="size-3 shrink-0" />
+                  ) : (
+                    <input
+                      type="checkbox"
+                      tabIndex={-1}
+                      checked={state === "viewed"}
+                      aria-label={`Viewed: ${file.path}`}
+                      title={state === "viewed" ? "Viewed (V)" : "Mark as viewed (V)"}
+                      onClick={(event) => event.stopPropagation()}
+                      onChange={(event) =>
+                        mark.mutate({
+                          checkoutPath,
+                          paths: [file.path],
+                          viewed: event.target.checked,
+                        })
+                      }
+                      className="mt-px size-3 shrink-0 accent-review-viewed"
+                      data-testid="viewed-checkbox"
+                    />
+                  )}
                   <span
                     aria-hidden="true"
                     className={cn(
@@ -214,9 +270,20 @@ export function FileList() {
                     {label}
                     <span className="sr-only">
                       , {file.status}
+                      {state ? `, ${VIEWED_LABEL[state]}` : ""}
                       {file.category ? ", " : ""}
                     </span>
                   </span>
+                  {state === "changedSinceViewed" && (
+                    <span
+                      aria-hidden="true"
+                      title="Changed since you viewed it"
+                      className="shrink-0 rounded-sm bg-review-changed-surface px-1 text-[10px] text-review-changed"
+                      data-testid="changed-badge"
+                    >
+                      changed
+                    </span>
+                  )}
                   {file.category && (
                     <span
                       className={cn(

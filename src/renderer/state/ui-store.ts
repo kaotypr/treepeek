@@ -55,6 +55,12 @@ export interface UiState {
   timelineGrouping: TimelineGrouping;
   timelineOrder: TimelineOrder;
   fileFilter: string;
+  /** The file list leaves out files marked Viewed (the selected one stays). */
+  hideViewed: boolean;
+  /** The timeline leaves out worktrees at 100%. */
+  hideReviewed: boolean;
+  /** The preview shows the selected file's changes since it was viewed. */
+  sinceViewed: boolean;
   timelineWidth: number | null;
   navigatorWidth: number | null;
   /** Bumped to ask the file filter to take focus (⌘F). */
@@ -84,6 +90,9 @@ export interface UiActions {
   setTimelineGrouping(grouping: TimelineGrouping): void;
   setTimelineOrder(order: TimelineOrder): void;
   setFileFilter(filter: string): void;
+  setHideViewed(hide: boolean): void;
+  setHideReviewed(hide: boolean): void;
+  setSinceViewed(on: boolean): void;
   requestFilterFocus(): void;
   setPanelWidths(widths: { timelineWidth?: number | null; navigatorWidth?: number | null }): void;
   /** Applies a saved layout (a restored window). */
@@ -110,6 +119,9 @@ function initialState(): UiState {
     timelineGrouping: DEFAULT_WINDOW_UI_STATE.timelineGrouping,
     timelineOrder: DEFAULT_WINDOW_UI_STATE.timelineOrder,
     fileFilter: "",
+    hideViewed: false,
+    hideReviewed: false,
+    sinceViewed: false,
     timelineWidth: null,
     navigatorWidth: null,
     filterFocusRequest: 0,
@@ -133,10 +145,16 @@ export function createUiStore() {
           comparisonOpen: false,
           startDialogOpen: false,
           fileFilter: "",
+          sinceViewed: false,
           revealRequest: reveal,
         };
       }),
-    selectFile: (file) => set({ selectedFile: file }),
+    selectFile: (file) =>
+      set((state) =>
+        file?.path === state.selectedFile?.path && file?.category === state.selectedFile?.category
+          ? { selectedFile: file }
+          : { selectedFile: file, sinceViewed: false },
+      ),
     setComparison: ({ kind, ref, startOverride }) =>
       set((state) => ({
         comparisonKind: kind,
@@ -144,6 +162,7 @@ export function createUiStore() {
         comparisonStartOverride:
           startOverride === undefined ? state.comparisonStartOverride : startOverride,
         selectedFile: null,
+        sinceViewed: false,
       })),
     setComparisonOpen: (open) => set({ comparisonOpen: open }),
     setDefaultComparison: (kind) => set({ defaultComparison: kind }),
@@ -158,6 +177,9 @@ export function createUiStore() {
     setTimelineGrouping: (grouping) => set({ timelineGrouping: grouping }),
     setTimelineOrder: (order) => set({ timelineOrder: order }),
     setFileFilter: (filter) => set({ fileFilter: filter }),
+    setHideViewed: (hide) => set({ hideViewed: hide }),
+    setHideReviewed: (hide) => set({ hideReviewed: hide }),
+    setSinceViewed: (on) => set({ sinceViewed: on }),
     requestFilterFocus: () =>
       set((state) => ({ filterFocusRequest: state.filterFocusRequest + 1 })),
     setPanelWidths: (widths) =>

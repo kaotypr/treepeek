@@ -1,4 +1,5 @@
-import { type KeyboardEvent, useCallback, useEffect, useId, useRef } from "react";
+import { type KeyboardEvent, useCallback, useEffect, useId, useMemo, useRef } from "react";
+import { reviewProgress } from "../../../shared/domain/review";
 import {
   TIMELINE_GROUPINGS,
   TIMELINE_ORDERS,
@@ -6,6 +7,7 @@ import {
   type TimelineOrder,
 } from "../../../shared/settings";
 import { CloseIcon } from "../../components/icons";
+import { useCachedReviewStatuses } from "../../data/hooks/useReviewStatus";
 import { useScan } from "../../data/hooks/useScan";
 import { quantity, type ScanData } from "../../data/scan-model";
 import { uiStore, useUi } from "../../state/ui-store";
@@ -29,7 +31,9 @@ export const TIMELINE_LIMITS =
 
 /**
  * The timeline panel (⌘T): every checkout as a numbered event, grouped and ordered as
- * chosen. Selecting an event selects its checkout and reveals it in the navigator.
+ * chosen, with its review progress. The header counts the worktrees reviewed, and "Hide
+ * reviewed" leaves out those at 100%. Selecting an event selects its checkout and reveals
+ * it in the navigator.
  */
 export function TimelinePanel() {
   const grouping = useUi((state) => state.timelineGrouping);
@@ -38,8 +42,29 @@ export function TimelinePanel() {
   const setOrder = useUi((state) => state.setTimelineOrder);
   const setOpen = useUi((state) => state.setTimelineOpen);
   const selected = useUi((state) => state.selectedCheckout);
+  const hideReviewed = useUi((state) => state.hideReviewed);
+  const setHideReviewed = useUi((state) => state.setHideReviewed);
   const scan = useScan(useCallback((data: ScanData) => data, []));
-  const groups = groupTimeline(scan, grouping, order);
+  const paths = useMemo(() => scan.timeline.map((entry) => entry.checkoutPath), [scan.timeline]);
+  const statuses = useCachedReviewStatuses(paths);
+  const reviews = useMemo(
+    () => new Map(paths.map((path, index) => [path, statuses[index]])),
+    [paths, statuses],
+  );
+  const reviewed = new Set(
+    paths.filter((path) => {
+      const status = reviews.get(path);
+      return status !== undefined && reviewProgress(status).reviewed;
+    }),
+  );
+  const groups = groupTimeline(scan, grouping, order)
+    .map((group) => ({
+      ...group,
+      entries: hideReviewed
+        ? group.entries.filter((entry) => !reviewed.has(entry.checkoutPath))
+        : group.entries,
+    }))
+    .filter((group) => group.entries.length > 0);
   const flat = groups.flatMap((group) => group.entries);
   const listId = useId();
   const groupingId = useId();
@@ -77,7 +102,11 @@ export function TimelinePanel() {
       <div className="border-border border-b px-3 py-2">
         <div className="flex items-center gap-2">
           <h2 className="flex-1 font-semibold text-sm">Worktree timeline</h2>
-          <span className="text-muted-foreground text-xs">{quantity(flat.length, "worktree")}</span>
+          <span className="text-muted-foreground text-xs" data-testid="timeline-reviewed">
+            {paths.length === 0
+              ? quantity(0, "worktree")
+              : `${reviewed.size} of ${quantity(paths.length, "worktree")} reviewed`}
+          </span>
           <button
             type="button"
             aria-label="Close timeline"
@@ -122,6 +151,16 @@ export function TimelinePanel() {
             </select>
           </label>
         </div>
+        <label className="mt-2 flex items-center gap-1.5 text-muted-foreground text-xs">
+          <input
+            type="checkbox"
+            checked={hideReviewed}
+            onChange={(event) => setHideReviewed(event.target.checked)}
+            className="size-3 accent-review-viewed"
+            data-testid="hide-reviewed"
+          />
+          Hide reviewed
+        </label>
       </div>
       <div
         role="listbox"
@@ -134,9 +173,11 @@ export function TimelinePanel() {
       >
         {flat.length === 0 ? (
           <p className="p-3 text-muted-foreground text-xs">
-            {scan.phase === "done"
-              ? "No worktrees to show."
-              : "The timeline appears once the scan is done."}
+            {scan.phase !== "done"
+              ? "The timeline appears once the scan is done."
+              : hideReviewed && paths.length > 0
+                ? "Every worktree is reviewed."
+                : "No worktrees to show."}
           </p>
         ) : (
           groups.map((group) => (
@@ -168,6 +209,7 @@ export function TimelinePanel() {
                     scan={scan}
                     entry={entry}
                     checkout={checkout}
+                    review={reviews.get(entry.checkoutPath)}
                     selected={entry.checkoutPath === selected}
                     onSelect={() => select(entry.checkoutPath)}
                   />

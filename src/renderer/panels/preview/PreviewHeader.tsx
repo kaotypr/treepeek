@@ -1,7 +1,9 @@
 import type { FileChange } from "../../../shared/domain/compare";
 import type { DiffStats } from "../../../shared/domain/diff";
+import type { FileReview } from "../../../shared/domain/review";
 import { PREVIEW_MODES, type PreviewMode } from "../../../shared/settings";
 import { shortcutLabel } from "../../commands/keymap";
+import { runCommand } from "../../commands/registry";
 import { FocusIcon } from "../../components/icons";
 import { cn } from "../../lib/utils";
 import { useUi } from "../../state/ui-store";
@@ -19,19 +21,32 @@ const MODE_COMMAND = {
   result: "preview.result",
 } as const;
 
-/** File name (or `old → new`), the preview modes, Focus preview and the line counts. */
+const toolButton =
+  "inline-flex h-6 items-center gap-1 rounded-md border border-input px-2 text-xs outline-none hover:bg-hover focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50";
+
+/**
+ * File name (or `old → new`), the file's Viewed toggle (V), "Mark viewed and open next"
+ * (⌘↩) and "Since you viewed" when it changed after it was viewed, the preview modes, Focus
+ * preview and the line counts.
+ */
 export function PreviewHeader({
   file,
   stats,
+  reviewed,
 }: {
   file: FileChange | undefined;
   stats: DiffStats | undefined;
+  /** The file's place in the review scope, when it is in it. */
+  reviewed?: FileReview | undefined;
 }) {
   const mode = useUi((state) => state.previewMode);
   const setMode = useUi((state) => state.setPreviewMode);
   const focus = useUi((state) => state.focusPreview);
   const setFocus = useUi((state) => state.setFocusPreview);
+  const sinceViewed = useUi((state) => state.sinceViewed);
+  const setSinceViewed = useUi((state) => state.setSinceViewed);
   const resultDisabled = file?.status === "deleted";
+  const viewed = reviewed?.state === "viewed";
 
   return (
     <div
@@ -45,6 +60,61 @@ export function PreviewHeader({
       >
         {file ? title(file) : "Select a file"}
       </h2>
+      {reviewed && (
+        <>
+          <button
+            type="button"
+            aria-pressed={viewed}
+            aria-keyshortcuts="V"
+            title={viewed ? "Viewed (V to unmark)" : "Mark as viewed (V)"}
+            onClick={() => runCommand("file.toggleViewed")}
+            className={cn(
+              toolButton,
+              viewed ? "bg-selection text-selection-foreground" : "bg-card",
+            )}
+            data-testid="viewed-toggle"
+          >
+            <span aria-hidden="true">{viewed ? "☑" : "☐"}</span>
+            Viewed
+          </button>
+          <button
+            type="button"
+            aria-keyshortcuts="Meta+Enter"
+            title="Mark viewed and open the next file (⌘↩)"
+            onClick={() => runCommand("file.markViewedAndNext")}
+            className={cn(toolButton, "bg-card")}
+            data-testid="mark-viewed-next"
+          >
+            Mark viewed &amp; next
+          </button>
+          {reviewed.state === "changedSinceViewed" &&
+            (reviewed.earlierAvailable === false ? (
+              <span
+                className="text-review-changed text-xs"
+                title="The version you viewed is kept nowhere any more"
+                data-testid="since-viewed-unavailable"
+              >
+                Earlier version not available
+              </span>
+            ) : (
+              <button
+                type="button"
+                aria-pressed={sinceViewed}
+                title="Show only what changed since you viewed this file"
+                onClick={() => setSinceViewed(!sinceViewed)}
+                className={cn(
+                  toolButton,
+                  sinceViewed
+                    ? "bg-selection text-selection-foreground"
+                    : "bg-review-changed-surface text-review-changed",
+                )}
+                data-testid="since-viewed"
+              >
+                Since you viewed
+              </button>
+            ))}
+        </>
+      )}
       {/* biome-ignore lint/a11y/useSemanticElements: a toolbar-style button group, not a form */}
       <div
         role="group"
