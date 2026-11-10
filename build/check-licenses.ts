@@ -6,12 +6,23 @@
  */
 import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { checkShipped, collectShipped, type Finding, loadAllowlist } from "./licenses";
+import {
+  assetLicenseTexts,
+  checkShipped,
+  collectShipped,
+  type Finding,
+  loadAllowlist,
+} from "./licenses";
 
 const root = resolve(import.meta.dirname, "..");
 const shipped = await collectShipped(root);
 const allowlist = loadAllowlist(join(root, "build", "license-allowlist.json"));
-const result = checkShipped(shipped, allowlist, readFileSync(join(root, "NOTICE"), "utf8"));
+const result = checkShipped(
+  shipped,
+  allowlist,
+  readFileSync(join(root, "NOTICE"), "utf8"),
+  assetLicenseTexts(root),
+);
 
 const { packages, grammars, themes } = result.checked;
 console.log(
@@ -44,5 +55,13 @@ if (result.missingFromNotice.length > 0) {
   );
   for (const pkg of result.missingFromNotice) console.error(`  ${pkg.name}@${pkg.version}`);
 }
-if (result.violations.length > 0 || result.missingFromNotice.length > 0) process.exit(1);
+if (result.missingLicenseText.length > 0) {
+  console.error(
+    "\nAllowed by an exception, but with no license text to ship. Add the text read upstream as build/asset-licenses/<kind>-<name>.txt:",
+  );
+  for (const finding of result.missingLicenseText) console.error(line(finding));
+}
+const failed =
+  result.violations.length + result.missingFromNotice.length + result.missingLicenseText.length;
+if (failed > 0) process.exit(1);
 console.log("\nEvery shipped license is on the allow-list or reviewed.");

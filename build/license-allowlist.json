@@ -1,5 +1,5 @@
 {
-  "$comment": "Licenses Treepeek may ship without review (SPDX ids), and reviewed exceptions. An exception names one package, grammar or theme, the exact license value it was reviewed for, and why it is acceptable: {\"package\" | \"grammar\" | \"theme\": name, \"license\": value, \"reason\": text}. Checked by `bun run licenses:check`.",
+  "$comment": "Licenses Treepeek may ship without review (SPDX ids), and reviewed exceptions. An exception names one package, grammar or theme, the license the review found (\"license\"), the value the package or collection records when that differs (\"recorded\"; the exception stops applying when the record changes), and why it is acceptable: {\"package\" | \"grammar\" | \"theme\": name, \"license\": id, \"recorded\"?: value, \"reason\": text}. A grammar or theme exception also needs the license text read upstream in build/asset-licenses/<kind>-<name>.txt. Checked by `bun run licenses:check`.",
   "allowed": [
     "MIT",
     "ISC",
@@ -11,5 +11,177 @@
     "BlueOak-1.0.0",
     "Python-2.0"
   ],
-  "exceptions": []
+  "exceptions": [
+    {
+      "grammar": "bird2",
+      "license": "MPL-2.0",
+      "reason": "MPL-2.0: LICENSE, and the README states that the syntax files are MPL-2.0 (only the samples, not bundled, are MIT) at bird-chinese-community/BIRD-tm-language-grammar@42fec06a. MPL-2.0 is file-level copyleft: the grammar is shipped as Shiki converts it, the full MPL-2.0 text is in THIRD_PARTY_NOTICES, and THIRD_PARTY_NOTICES names its source file, grammars/bird2.tmLanguage.json, at that commit."
+    },
+    {
+      "grammar": "hcl",
+      "license": "MPL-2.0",
+      "reason": "MPL-2.0: LICENSE (Copyright (c) 2020 HashiCorp, Inc.) and package.json \"license\": \"MPL-2.0\" at hashicorp/syntax@2ec7cd10. MPL-2.0 is file-level copyleft: the grammar is shipped as Shiki converts it, the full MPL-2.0 text is in THIRD_PARTY_NOTICES, and THIRD_PARTY_NOTICES names its source file, syntaxes/hcl.tmGrammar.json, at that commit."
+    },
+    {
+      "grammar": "terraform",
+      "license": "MPL-2.0",
+      "reason": "MPL-2.0: LICENSE (Copyright (c) 2020 HashiCorp, Inc.) and package.json \"license\": \"MPL-2.0\" at hashicorp/syntax@cc2b4d4f. MPL-2.0 is file-level copyleft: the grammar is shipped as Shiki converts it, the full MPL-2.0 text is in THIRD_PARTY_NOTICES, and THIRD_PARTY_NOTICES names its source file, syntaxes/terraform.tmGrammar.json, at that commit."
+    },
+    {
+      "grammar": "apache",
+      "license": "BSD-2-Clause-Views",
+      "recorded": "NOASSERTION",
+      "reason": "LICENSE at colinta/ApacheConf.tmLanguage@1fdb47b6 (Copyright (c) 2012, Colin T.A. Gray) is the two BSD-2-Clause conditions plus the FreeBSD \"views and conclusions\" sentence, which adds no condition. The id is not on the allow-list only because of that sentence."
+    },
+    {
+      "grammar": "apex",
+      "license": "BSD-3-Clause",
+      "recorded": "NOASSERTION",
+      "reason": "LICENSE at forcedotcom/apex-tmLanguage@611becc6 (Copyright (c) 2018, Salesforce.com, Inc.) covers modifications and everything not otherwise marked; grammars/apex.tmLanguage carries no other marking."
+    },
+    {
+      "grammar": "asciidoc",
+      "license": "MIT",
+      "recorded": "NOASSERTION",
+      "reason": "LICENSE at asciidoctor/asciidoctor-vscode@09c406fc (João Pinto and the Asciidoctor Project; based on Microsoft's MIT-licensed VS Code markdown extension); package.json says MIT."
+    },
+    {
+      "grammar": "cue",
+      "license": "MIT",
+      "recorded": "NOASSERTION",
+      "reason": "extension/LICENSE, next to extension/syntaxes/cue.tmLanguage.json and the same as the root LICENSE, at cue-lang/vscode-cue@a9ee96a7 (Andrew Hodges, The CUE Authors); extension/package.json says MIT."
+    },
+    {
+      "grammar": "elixir",
+      "license": "Apache-2.0",
+      "recorded": "NOASSERTION",
+      "reason": "LICENSE at elixir-editors/elixir-tmbundle@43c8cd95 is the Apache License 2.0 notice (Copyright 2012 Plataformatec). The full Apache-2.0 text is in THIRD_PARTY_NOTICES with the other Apache-2.0 components."
+    },
+    {
+      "grammar": "llvm",
+      "license": "Apache-2.0 WITH LLVM-exception",
+      "recorded": "NOASSERTION",
+      "reason": "llvm/LICENSE.TXT (the same as the root LICENSE.TXT) at llvm/llvm-project@c07bc296; llvm/utils/vscode/llvm has no license of its own. The LLVM exception only adds permissions to Apache-2.0."
+    },
+    {
+      "grammar": "luau",
+      "license": "MIT",
+      "recorded": "NOASSERTION",
+      "reason": "LICENSE.md at JohnnyMorganz/Luau.tmLanguage@25653377: MIT (JohnnyMorganz), and MIT (Microsoft Corporation) for the part taken from VS Code."
+    },
+    {
+      "grammar": "nim",
+      "license": "MIT",
+      "recorded": "NOASSERTION",
+      "reason": "LICENSE at pragmagic/vscode-nim@0272a054 (Xored Software Inc.); package.json says MIT."
+    },
+    {
+      "grammar": "nsis",
+      "license": "Apache-2.0",
+      "recorded": "NOASSERTION",
+      "reason": "syntaxes/nsis-license.txt at idleberg/vscode-nsis@9adaf15a: the Apache License 2.0 (Copyright 2014 Sublime HQ Pty Ltd). The repository LICENSE makes a file's \"-license\" companion its license, and MIT for everything else."
+    },
+    {
+      "grammar": "purescript",
+      "license": "MIT",
+      "recorded": "NOASSERTION",
+      "reason": "LICENSE.md at nwolverson/vscode-language-purescript@b7641936: MIT (Nicholas Wolverson), and MIT (Darin Morrison) for the atom-language-purescript grammar it derives from, both in that file."
+    },
+    {
+      "grammar": "sass",
+      "license": "MIT",
+      "recorded": "NOASSERTION",
+      "reason": "LICENSE at TheRealSyler/vscode-sass-indented@f0e50cfa: MIT (Robin Bentley, Leonard Grosoli), and MIT (GitHub Inc.) for the atom/language-sass grammar definitions; package.json says MIT."
+    },
+    {
+      "grammar": "wolfram",
+      "license": "MIT",
+      "recorded": "NOASSERTION",
+      "reason": "LICENSE at WolframResearch/vscode-wolfram@8b55fb17 is the MIT license text (Copyright 2021 Wolfram Research Inc.); package.json says MIT."
+    },
+    {
+      "grammar": "kusto",
+      "license": "Apache-2.0",
+      "recorded": "UNKNOWN",
+      "reason": "kusto-syntax-highlighting/LICENSE at rosshamish/kuskus@2a5d25aa: the Apache License 2.0 (Copyright 2016 Josef Sin); the package.json next to it says Apache-2.0."
+    },
+    {
+      "grammar": "matlab",
+      "license": "BSD-2-Clause",
+      "recorded": "UNKNOWN",
+      "reason": "license.txt at mathworks/MATLAB-Language-grammar@69dbf20c: BSD-2-Clause (Copyright 2018 The MathWorks, Inc.); package.json says BSD-2-Clause."
+    },
+    {
+      "grammar": "sparql",
+      "license": "Apache-2.0",
+      "recorded": "UNKNOWN",
+      "reason": "stardog-rdf-grammars/LICENSE at stardog-union/stardog-vsc@a1963c61: the Apache License 2.0 (Copyright 2017 Stardog Union); the package.json next to it says Apache-2.0."
+    },
+    {
+      "grammar": "turtle",
+      "license": "Apache-2.0",
+      "recorded": "UNKNOWN",
+      "reason": "stardog-rdf-grammars/LICENSE at stardog-union/stardog-vsc@3f1364b0: the Apache License 2.0 (Copyright 2017 Stardog Union); the package.json next to it says Apache-2.0."
+    },
+    {
+      "grammar": "ts-tags",
+      "license": "MIT",
+      "recorded": "UNKNOWN",
+      "reason": "Written in shikijs/textmate-grammars-themes itself (sources-grammars.ts; it has no upstream source) at 37edd1b2, the commit that released tm-grammars 1.32.22, where packages/tm-grammars/LICENSE is MIT (Pine Wu, Anthony Fu)."
+    },
+    {
+      "grammar": "yaml",
+      "license": "MIT",
+      "recorded": "UNKNOWN",
+      "reason": "Syntaxes/YAML-license.txt at textmate/yaml.tmbundle@e54ceae3: MIT (Copyright (c) 2015 FichteFoll). The bundle README makes a file's \"-license\" companion its license."
+    },
+    {
+      "grammar": "abap",
+      "license": "LicenseRef-TextMate-bundle",
+      "recorded": "UNKNOWN",
+      "reason": "The README.md at pvl/abap.tmbundle@92e17e62 licenses every file not otherwise marked with the TextMate bundle grant (\"Permission to copy, use, modify, sell and distribute this software is granted\", as is), which sets no conditions. The grammar file carries no license of its own and has no \"-license\" companion. No SPDX id matches that text; it is more permissive than MIT."
+    },
+    {
+      "grammar": "applescript",
+      "license": "LicenseRef-TextMate-bundle",
+      "recorded": "UNKNOWN",
+      "reason": "The README.mdown at textmate/applescript.tmbundle@4947cad7 licenses every file not otherwise marked with the TextMate bundle grant (\"Permission to copy, use, modify, sell and distribute this software is granted\", as is), which sets no conditions. The grammar file carries no license of its own and has no \"-license\" companion. No SPDX id matches that text; it is more permissive than MIT."
+    },
+    {
+      "grammar": "erb",
+      "license": "LicenseRef-TextMate-bundle",
+      "recorded": "UNKNOWN",
+      "reason": "The README.mdown at textmate/ruby.tmbundle@ecf0f1df licenses every file not otherwise marked with the TextMate bundle grant (\"Permission to copy, use, modify, sell and distribute this software is granted\", as is), which sets no conditions. The grammar file carries no license of its own and has no \"-license\" companion. No SPDX id matches that text; it is more permissive than MIT."
+    },
+    {
+      "grammar": "logo",
+      "license": "LicenseRef-TextMate-bundle",
+      "recorded": "UNKNOWN",
+      "reason": "The README.mdown at textmate/logo.tmbundle@3205e987 licenses every file not otherwise marked with the TextMate bundle grant (\"Permission to copy, use, modify, sell and distribute this software is granted\", as is), which sets no conditions. The grammar file carries no license of its own and has no \"-license\" companion. No SPDX id matches that text; it is more permissive than MIT."
+    },
+    {
+      "grammar": "mipsasm",
+      "license": "LicenseRef-TextMate-bundle",
+      "recorded": "UNKNOWN",
+      "reason": "The README.mdown at textmate/mips.tmbundle@eb760101 licenses every file not otherwise marked with the TextMate bundle grant (\"Permission to copy, use, modify, sell and distribute this software is granted\", as is), which sets no conditions. The grammar file carries no license of its own and has no \"-license\" companion. No SPDX id matches that text; it is more permissive than MIT."
+    },
+    {
+      "grammar": "po",
+      "license": "LicenseRef-TextMate-bundle",
+      "recorded": "UNKNOWN",
+      "reason": "The README.mdown at textmate/gettext.tmbundle@08bb6955 licenses every file not otherwise marked with the TextMate bundle grant (\"Permission to copy, use, modify, sell and distribute this software is granted\", as is), which sets no conditions. The grammar file carries no license of its own and has no \"-license\" companion. No SPDX id matches that text; it is more permissive than MIT."
+    },
+    {
+      "grammar": "ssh-config",
+      "license": "LicenseRef-TextMate-bundle",
+      "recorded": "UNKNOWN",
+      "reason": "The README.mdown at textmate/ssh-config.tmbundle@212a0000 licenses every file not otherwise marked with the TextMate bundle grant (\"Permission to copy, use, modify, sell and distribute this software is granted\", as is), which sets no conditions. The grammar file carries no license of its own and has no \"-license\" companion. No SPDX id matches that text; it is more permissive than MIT."
+    },
+    {
+      "grammar": "toml",
+      "license": "LicenseRef-TextMate-bundle",
+      "recorded": "UNKNOWN",
+      "reason": "The README.mdown at textmate/toml.tmbundle@e82b64c1 licenses every file not otherwise marked with the TextMate bundle grant (\"Permission to copy, use, modify, sell and distribute this software is granted\", as is), which sets no conditions. The grammar file carries no license of its own and has no \"-license\" companion. No SPDX id matches that text; it is more permissive than MIT."
+    }
+  ]
 }

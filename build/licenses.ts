@@ -19,11 +19,19 @@
  * Shiki's grammars and themes are bundled from `@shikijs/langs` and `@shikijs/themes`, which
  * carry no license data of their own. Their licenses come from `tm-grammars` and
  * `tm-themes`, the collections Shiki builds them from (dev dependencies for that reason).
+ * The ones in `src/renderer/diff-view/highlight/excluded-assets.ts` are left out of the
+ * build, so they are not shipped. Where a collection records no usable license, the license
+ * was reviewed upstream: `build/license-allowlist.json` records it, and
+ * `build/asset-licenses/<kind>-<name>.txt` holds the license text read there.
  */
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { builtinModules } from "node:module";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
+import {
+  EXCLUDED_GRAMMARS,
+  EXCLUDED_THEMES,
+} from "../src/renderer/diff-view/highlight/excluded-assets";
 
 /** The source folders whose code ends up in the app. */
 const SOURCE_DIRS = ["src/main", "src/core", "src/preload", "src/renderer", "src/shared"];
@@ -338,7 +346,8 @@ async function bundledGrammars(root: string, langs: ShippedPackage): Promise<Bun
       if (isRecord(entry) && typeof entry.name === "string") info.set(entry.name, entry);
     }
   }
-  const names = moduleNames(join(langs.dir, "dist"));
+  const excluded = new Set(EXCLUDED_GRAMMARS.map((asset) => asset.name));
+  const names = moduleNames(join(langs.dir, "dist")).filter((name) => !excluded.has(name));
   return {
     kind: "grammar",
     bundledFrom: `${langs.name} ${langs.version}`,
@@ -355,7 +364,8 @@ async function bundledThemes(root: string, themes: ShippedPackage): Promise<Bund
   for (const entry of Array.isArray(raw.themes) ? raw.themes : []) {
     if (isRecord(entry) && typeof entry.name === "string") info.set(entry.name, entry);
   }
-  const names = moduleNames(join(themes.dir, "dist"));
+  const excluded = new Set(EXCLUDED_THEMES.map((asset) => asset.name));
+  const names = moduleNames(join(themes.dir, "dist")).filter((name) => !excluded.has(name));
   return {
     kind: "theme",
     bundledFrom: `${themes.name} ${themes.version}`,
@@ -484,8 +494,14 @@ function compareVersions(a: readonly number[], b: readonly number[]): number {
 export interface LicenseException {
   kind: "package" | "grammar" | "theme";
   name: string;
-  /** The exact license value the exception was reviewed for. */
+  /** The license the review found (an SPDX id or `LicenseRef-…`). */
   license: string;
+  /**
+   * The value the package or collection records, when it differs from `license` (such as
+   * `NOASSERTION`). The exception applies only while that value is unchanged, so a changed
+   * record is reviewed again.
+   */
+  recorded: string | null;
   reason: string;
 }
 
@@ -512,12 +528,21 @@ export function loadAllowlist(file: string): Allowlist {
       throw new Error(`${where} needs exactly one of "package", "grammar" or "theme"`);
     }
     if (typeof entry.license !== "string" || entry.license.trim() === "") {
-      throw new Error(`${where} needs the "license" it was reviewed for`);
+      throw new Error(`${where} needs the "license" the review found`);
+    }
+    if (entry.recorded !== undefined && typeof entry.recorded !== "string") {
+      throw new Error(`${where}: "recorded" must be a string`);
     }
     if (typeof entry.reason !== "string" || entry.reason.trim() === "") {
       throw new Error(`${where} needs a "reason"`);
     }
-    return { kind, name: String(entry[kind]), license: entry.license, reason: entry.reason };
+    return {
+      kind,
+      name: String(entry[kind]),
+      license: entry.license,
+      recorded: entry.recorded ?? null,
+      reason: entry.reason,
+    };
   });
   return { allowed, exceptions };
 }
@@ -541,25 +566,34 @@ export interface CheckResult {
   unusedExceptions: LicenseException[];
   /** Apache-2.0 packages with a NOTICE file that the root `NOTICE` does not name. */
   missingFromNotice: ShippedPackage[];
+  /** Grammars and themes allowed by an exception, with no license text to ship. */
+  missingLicenseText: Finding[];
 }
 
-/** Checks every shipped package, grammar and theme against the allow-list. */
-export function checkShipped(shipped: Shipped, allowlist: Allowlist, notice: string): CheckResult {
+/**
+ * Checks every shipped package, grammar and theme against the allow-list. `assetTexts` holds
+ * the reviewed license texts of grammars and themes (`assetLicenseTexts`).
+ */
+export function checkShipped(
+  shipped: Shipped,
+  allowlist: Allowlist,
+  notice: string,
+  assetTexts: ReadonlyMap<string, string> = new Map(),
+): CheckResult {
   const allowed = new Set(allowlist.allowed.map((id) => id.toLowerCase()));
   const used = new Set<LicenseException>();
   const violations: Finding[] = [];
   const excepted: CheckResult["excepted"] = [];
+  const missingLicenseText: Finding[] = [];
   const consider = (finding: Finding) => {
     if (isAllowed(finding.license, allowed)) return;
-    const exception = allowlist.exceptions.find(
-      (entry) =>
-        entry.kind === finding.kind &&
-        entry.name === finding.name &&
-        entry.license.trim().toLowerCase() === finding.license.trim().toLowerCase(),
-    );
+    const exception = findException(allowlist, finding);
     if (exception) {
       used.add(exception);
       excepted.push({ ...finding, reason: exception.reason });
+      if (finding.kind !== "package" && !assetTexts.has(assetKey(finding.kind, finding.name))) {
+        missingLicenseText.push(finding);
+      }
     } else {
       violations.push(finding);
     }
@@ -603,7 +637,41 @@ export function checkShipped(shipped: Shipped, allowlist: Allowlist, notice: str
     excepted,
     unusedExceptions: allowlist.exceptions.filter((entry) => !used.has(entry)),
     missingFromNotice,
+    missingLicenseText,
   };
+}
+
+/** The exception for this package or asset and the license value it records, if any. */
+export function findException(
+  allowlist: Allowlist,
+  item: { kind: LicenseException["kind"]; name: string; license: string },
+): LicenseException | undefined {
+  const same = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
+  return allowlist.exceptions.find(
+    (entry) =>
+      entry.kind === item.kind &&
+      entry.name === item.name &&
+      same(entry.recorded ?? entry.license, item.license),
+  );
+}
+
+export function assetKey(kind: "grammar" | "theme", name: string): string {
+  return `${kind}-${name}`;
+}
+
+/**
+ * The license texts read upstream for grammars and themes whose collection records none,
+ * from `build/asset-licenses/<kind>-<name>.txt`, keyed by `assetKey`.
+ */
+export function assetLicenseTexts(root: string): Map<string, string> {
+  const dir = join(root, "build", "asset-licenses");
+  const texts = new Map<string, string>();
+  if (!existsSync(dir)) return texts;
+  for (const file of readdirSync(dir).sort(compareText)) {
+    if (!file.endsWith(".txt")) continue;
+    texts.set(file.slice(0, -".txt".length), readFileSync(join(dir, file), "utf8").trimEnd());
+  }
+  return texts;
 }
 
 /** The packages folder all of `dirs` share (`<root>/node_modules`'s parent). */

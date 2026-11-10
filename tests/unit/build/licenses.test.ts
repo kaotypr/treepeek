@@ -4,6 +4,7 @@ import { dirname, join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { renderNotices } from "../../../build/generate-notices";
 import {
+  assetLicenseTexts,
   checkShipped,
   collectShipped,
   importSpecifiers,
@@ -15,6 +16,10 @@ import {
   satisfiesCaret,
   shippedPackages,
 } from "../../../build/licenses";
+import {
+  EXCLUDED_GRAMMARS,
+  EXCLUDED_THEMES,
+} from "../../../src/renderer/diff-view/highlight/excluded-assets";
 
 const repoRoot = resolve(import.meta.dirname, "../../..");
 const ALLOWED = new Set(["mit", "isc", "bsd-3-clause", "apache-2.0"]);
@@ -273,6 +278,38 @@ describe("checkShipped", () => {
     ).toHaveLength(1);
   });
 
+  it("applies a reviewed exception only while the collection records the same value", () => {
+    const reviewed = {
+      grammar: "copyleft",
+      license: "MIT",
+      recorded: "GPL-3.0",
+      reason: "the upstream LICENSE is MIT",
+    };
+    const texts = new Map([["grammar-copyleft", "MIT text"]]);
+    const result = checkShipped(shipped([]), allowlist([reviewed]), "", texts);
+    expect(result.violations).toEqual([]);
+    expect(result.excepted.map((f) => f.name)).toEqual(["copyleft"]);
+    expect(result.missingLicenseText).toEqual([]);
+    // The record changed: the review no longer covers it.
+    const changed = checkShipped(
+      shipped([]),
+      allowlist([{ ...reviewed, recorded: "NOASSERTION" }]),
+      "",
+      texts,
+    );
+    expect(changed.violations.map((f) => f.name)).toEqual(["copyleft"]);
+  });
+
+  it("requires the license text of a grammar or theme it accepts by exception", () => {
+    const result = checkShipped(
+      shipped([]),
+      allowlist([{ grammar: "copyleft", license: "MIT", recorded: "GPL-3.0", reason: "r" }]),
+      "",
+    );
+    expect(result.violations).toEqual([]);
+    expect(result.missingLicenseText.map((f) => f.name)).toEqual(["copyleft"]);
+  });
+
   it("refuses an exception without a reason", () => {
     const file = join(tempDir(), "allowlist.json");
     writeJson(file, { allowed: [], exceptions: [{ package: "x", license: "GPL-3.0" }] });
@@ -352,14 +389,42 @@ describe("the app's own shipped set", () => {
     const grammars = shipped.bundled.find((set) => set.kind === "grammar")?.assets ?? [];
     const themes = shipped.bundled.find((set) => set.kind === "theme")?.assets ?? [];
     expect(grammars.map((g) => g.name)).toEqual(
-      expect.arrayContaining(["typescript", "javascript", "json", "markdown"]),
+      expect.arrayContaining(["typescript", "javascript", "json", "markdown", "yaml", "hcl"]),
     );
-    expect(themes.length).toBeGreaterThan(0);
+    expect(themes.map((t) => t.name)).toEqual(expect.arrayContaining(["andromeeda"]));
 
     const text = renderNotices(shipped);
     expect(text).toMatch(/^@pierre\/diffs \d+\.\d+\.\d+$/m);
     expect(text).toContain("TypeScript (typescript)");
     expect(text).toContain("Syntax grammars bundled through Shiki");
     expect(text).toContain("Color themes bundled through Shiki");
+  }, 30_000);
+
+  it("leaves out the grammars and themes the build leaves out", async () => {
+    const shipped = await collectShipped(repoRoot);
+    const names = (kind: string) =>
+      shipped.bundled.find((set) => set.kind === kind)?.assets.map((a) => a.name) ?? [];
+    for (const { name } of EXCLUDED_GRAMMARS) expect(names("grammar")).not.toContain(name);
+    for (const { name } of EXCLUDED_THEMES) expect(names("theme")).not.toContain(name);
+    const text = renderNotices(shipped);
+    for (const { name } of [...EXCLUDED_GRAMMARS, ...EXCLUDED_THEMES]) {
+      expect(text).not.toMatch(new RegExp(`\\(${name}\\)$|^Files: (.*, )?${name}(,|$)`, "m"));
+    }
+  }, 30_000);
+
+  it("ships the license text read upstream for every reviewed grammar and theme", async () => {
+    const shipped = await collectShipped(repoRoot);
+    const allowlist = loadAllowlist(join(repoRoot, "build", "license-allowlist.json"));
+    const texts = assetLicenseTexts(repoRoot);
+    const result = checkShipped(shipped, allowlist, "", texts);
+    expect(result.missingLicenseText).toEqual([]);
+    const text = renderNotices(shipped, { allowlist, texts });
+    const reviewed = allowlist.exceptions.filter((entry) => entry.kind !== "package");
+    expect(reviewed.length).toBeGreaterThan(0);
+    for (const entry of reviewed) {
+      const licenseText = texts.get(`${entry.kind}-${entry.name}`) ?? "";
+      expect(text).toContain(`Files: ${entry.name}\nLicense: ${entry.license}`);
+      expect(text).toContain(licenseText);
+    }
   }, 30_000);
 });
