@@ -41,6 +41,16 @@ function firstVisibleLine(page: Page): Promise<number | null> {
   });
 }
 
+/** Whether a code pane of the diff is wider than its box, so it scrolls sideways. */
+function codePanesScrollSideways(page: Page): Promise<boolean> {
+  return page.evaluate(() => {
+    const host = document.querySelector("diffs-container");
+    return [...(host?.shadowRoot?.querySelectorAll<HTMLElement>("[data-code]") ?? [])].some(
+      (pane) => pane.scrollWidth > pane.clientWidth,
+    );
+  });
+}
+
 /** Scrolls the diff so the row for `line` sits at the top of the view. */
 async function scrollToLine(page: Page, line: number): Promise<void> {
   await page.evaluate((target) => {
@@ -343,6 +353,23 @@ test.describe(`compare and preview (${target})`, () => {
     } finally {
       await page.emulateMedia({ contrast: null });
     }
+    // A narrower window, as on a smaller display: the diff's code panes scroll sideways, and a
+    // scrolling region must be reachable by keyboard.
+    const cdp = await page.context().newCDPSession(page);
+    await cdp.send("Emulation.setDeviceMetricsOverride", {
+      width: 800,
+      height: 640,
+      deviceScaleFactor: 0,
+      mobile: false,
+    });
+    try {
+      await expect.poll(() => codePanesScrollSideways(page)).toBe(true);
+      const violations = await contrastViolations(page);
+      expect(violations.map((violation) => `narrow: ${violation}`)).toEqual([]);
+    } finally {
+      await cdp.send("Emulation.clearDeviceMetricsOverride");
+      await cdp.detach();
+    }
     await page.evaluate(() => window.treepeek.main.settings.set({ appearance: "system" }));
     await page.keyboard.press("Meta+T");
   });
@@ -358,7 +385,11 @@ test.describe(`compare and preview (${target})`, () => {
       await page.keyboard.press("Tab");
       reached.add(
         await page.evaluate(() => {
-          const element = document.activeElement as HTMLElement | null;
+          // Focus inside the diff viewer's shadow root shows on the document as its host.
+          let element = document.activeElement as HTMLElement | null;
+          while (element?.shadowRoot?.activeElement) {
+            element = element.shadowRoot.activeElement as HTMLElement;
+          }
           return (
             element?.getAttribute("aria-label") ?? element?.textContent?.trim().slice(0, 30) ?? ""
           );
@@ -376,6 +407,9 @@ test.describe(`compare and preview (${target})`, () => {
       "Filter files",
       "Changed files",
       "Focus preview",
+      // The diff's code panes, which scroll sideways when a line is wider than they are.
+      "Old version",
+      "New version",
     ]) {
       expect([...reached], control).toContain(control);
     }
