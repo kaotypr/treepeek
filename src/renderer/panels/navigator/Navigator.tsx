@@ -9,6 +9,7 @@ import { CheckoutDetails } from "./CheckoutDetails";
 import { FileList } from "./FileList";
 import { FolderPicker } from "./FolderPicker";
 import { FolderTree } from "./FolderTree";
+import { ScanProblems } from "./ScanProblems";
 
 /**
  * The middle panel: the folder picker (or the full tree), the selected checkout's details,
@@ -53,6 +54,7 @@ export function Navigator() {
       >
         {status.text}
       </p>
+      <ScanProblems />
       {tree && (
         <div className="h-[40%] min-h-24 shrink-0 border-border border-y">
           <FolderTree />
@@ -84,15 +86,17 @@ function scanStatus(scan: ScanData): { text: string; count: number; error: boole
       };
     case "resolving":
       return { text: `Scanning… ${quantity(count, "checkout")} found`, count, error: false };
-    case "done":
+    case "done": {
+      const unread =
+        scan.problems.length > 0
+          ? ` · ${quantity(scan.problems.length, "folder")} could not be read`
+          : "";
       return {
-        text:
-          count === 0
-            ? "No Git checkouts found beneath this folder."
-            : `${quantity(count, "Git checkout")}${scan.problems.length > 0 ? ` · ${quantity(scan.problems.length, "folder")} could not be read` : ""}`,
+        text: `${count === 0 ? "No Git checkouts found beneath this folder." : quantity(count, "Git checkout")}${unread}`,
         count,
         error: false,
       };
+    }
     case "failed":
       return {
         text:

@@ -1,6 +1,11 @@
 /**
  * In-window shortcuts (user-interface design, "Keyboard"), each bound to a command id. ⌘O
  * is the native menu's; ↑ and ↓ belong to the focused list or tree.
+ *
+ * The native menu shows the same shortcuts (`main/menu.ts`). Chromium hands a ⌘ shortcut
+ * to the page before the menu; when its command runs here, the key press is taken, so the
+ * menu never runs it a second time. A key whose command is disabled here passes on to the
+ * menu, whose item is disabled too.
  */
 
 import { type CommandId, runCommand } from "./registry";
@@ -28,6 +33,10 @@ export const KEYMAP: readonly KeyBinding[] = Object.freeze([
   { command: "preview.focus", key: "f", meta: true, shift: true },
   { command: "files.filter", key: "f", meta: true },
   { command: "comparison.settings", key: "k", meta: true },
+  { command: "checkout.openInEditor", key: "e", meta: true },
+  { command: "checkout.openInTerminal", key: "e", meta: true, shift: true },
+  { command: "checkout.revealInFinder", key: "r", meta: true, shift: true },
+  { command: "app.settings", key: ",", meta: true },
 ]);
 
 export interface KeyLike {

@@ -1,31 +1,20 @@
 /**
- * Every action in a window is a command with an id. Shortcuts (`keymap.ts`) and, later, the
- * native menu run commands by id, so a key and a menu item can never do different things.
+ * Every action in a window is a command with an id (`shared/commands.ts`). Shortcuts
+ * (`keymap.ts`) and the native menu (`command.run` from main) run commands by id, so a key
+ * and a menu item can never do different things.
  *
  * The component that owns an action registers it while mounted (`useCommand`), so a command
- * exists only while what it acts on is on screen.
+ * exists only while what it acts on is on screen. Each run is announced on `window` as a
+ * `treepeek:command` event (`detail.id`), which end-to-end tests count.
  */
 
 import { useEffect, useRef } from "react";
+import { COMMAND_IDS, type CommandId } from "../../shared/commands";
 
-export const COMMAND_IDS = [
-  "scan.refresh",
-  "view.timeline",
-  "view.tree",
-  "checkout.previous",
-  "checkout.next",
-  "file.previous",
-  "file.next",
-  "preview.split",
-  "preview.unified",
-  "preview.result",
-  "preview.focus",
-  "files.filter",
-  "comparison.settings",
-  "appearance.cycle",
-] as const;
+export { COMMAND_IDS, type CommandId };
 
-export type CommandId = (typeof COMMAND_IDS)[number];
+/** The DOM event a command run is announced with. */
+export const COMMAND_RUN_EVENT = "treepeek:command";
 
 interface Command {
   run: () => void;
@@ -33,6 +22,20 @@ interface Command {
 }
 
 const commands = new Map<CommandId, Command>();
+const changeListeners = new Set<() => void>();
+
+/**
+ * Calls `listener` whenever which commands exist, or what they depend on, may have
+ * changed (a registration came or went, or a component owning commands rendered).
+ */
+export function onCommandsChange(listener: () => void): () => void {
+  changeListeners.add(listener);
+  return () => changeListeners.delete(listener);
+}
+
+function notifyChange(): void {
+  for (const listener of changeListeners) listener();
+}
 
 /** Registers a command; answers the function that removes exactly this registration. */
 export function registerCommand(
@@ -42,8 +45,11 @@ export function registerCommand(
 ): () => void {
   const command: Command = { run, isEnabled };
   commands.set(id, command);
+  notifyChange();
   return () => {
-    if (commands.get(id) === command) commands.delete(id);
+    if (commands.get(id) !== command) return;
+    commands.delete(id);
+    notifyChange();
   };
 }
 
@@ -56,7 +62,17 @@ export function runCommand(id: CommandId): boolean {
   const command = commands.get(id);
   if (!command?.isEnabled()) return false;
   command.run();
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent(COMMAND_RUN_EVENT, { detail: { id } }));
+  }
   return true;
+}
+
+/** Runs the commands main asks for from the native menu (`command.run`). */
+export function installMenuCommands(): () => void {
+  return window.treepeek.on("command.run", ({ id }) => {
+    runCommand(id);
+  });
 }
 
 /** Test support: forgets every registration. */
@@ -80,4 +96,6 @@ export function useCommand(id: CommandId, run: () => void, isEnabled?: () => boo
       ),
     [id],
   );
+  // Whether it is enabled may have changed with this render; the menu hears about it.
+  useEffect(() => notifyChange());
 }

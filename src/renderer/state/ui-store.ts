@@ -17,8 +17,16 @@ import {
   type WindowUiState,
 } from "../../shared/settings";
 
-/** The default comparison for a newly selected checkout (a setting arrives later). */
+/** The comparison a newly selected checkout starts on until the setting has arrived. */
 export const DEFAULT_COMPARISON: ListableComparisonKind = "review";
+
+/** A short message about an action that just ran ("Copied the commit"), or what went wrong. */
+export interface Notice {
+  text: string;
+  tone: "info" | "error";
+  /** Tells two equal messages in a row apart, so each is announced. */
+  id: number;
+}
 
 export interface FileSelection {
   path: string;
@@ -35,6 +43,11 @@ export interface UiState {
   /** A start for this comparison only (not stored), for the kinds that use a start. */
   comparisonStartOverride: string | null;
   comparisonOpen: boolean;
+  /** The comparison a newly selected checkout starts on (Settings › Review). */
+  defaultComparison: ListableComparisonKind;
+  /** The "Set start" dialog of the selected checkout is open. */
+  startDialogOpen: boolean;
+  notice: Notice | null;
   previewMode: PreviewMode;
   focusPreview: boolean;
   timelineOpen: boolean;
@@ -60,6 +73,10 @@ export interface UiActions {
     startOverride?: string | null;
   }): void;
   setComparisonOpen(open: boolean): void;
+  setDefaultComparison(kind: ListableComparisonKind): void;
+  setStartDialogOpen(open: boolean): void;
+  showNotice(text: string, tone?: Notice["tone"]): void;
+  clearNotice(): void;
   setPreviewMode(mode: PreviewMode): void;
   setFocusPreview(focus: boolean): void;
   setTimelineOpen(open: boolean): void;
@@ -83,6 +100,9 @@ function initialState(): UiState {
     comparisonRef: null,
     comparisonStartOverride: null,
     comparisonOpen: false,
+    defaultComparison: DEFAULT_COMPARISON,
+    startDialogOpen: false,
+    notice: null,
     previewMode: DEFAULT_WINDOW_UI_STATE.previewMode,
     focusPreview: false,
     timelineOpen: DEFAULT_WINDOW_UI_STATE.timelineOpen,
@@ -107,10 +127,11 @@ export function createUiStore() {
         return {
           selectedCheckout: path,
           selectedFile: null,
-          comparisonKind: DEFAULT_COMPARISON,
+          comparisonKind: state.defaultComparison,
           comparisonRef: null,
           comparisonStartOverride: null,
           comparisonOpen: false,
+          startDialogOpen: false,
           fileFilter: "",
           revealRequest: reveal,
         };
@@ -125,6 +146,11 @@ export function createUiStore() {
         selectedFile: null,
       })),
     setComparisonOpen: (open) => set({ comparisonOpen: open }),
+    setDefaultComparison: (kind) => set({ defaultComparison: kind }),
+    setStartDialogOpen: (open) => set({ startDialogOpen: open }),
+    showNotice: (text, tone = "info") =>
+      set((state) => ({ notice: { text, tone, id: (state.notice?.id ?? 0) + 1 } })),
+    clearNotice: () => set({ notice: null }),
     setPreviewMode: (mode) => set({ previewMode: mode }),
     setFocusPreview: (focus) => set({ focusPreview: focus }),
     setTimelineOpen: (open) => set({ timelineOpen: open }),

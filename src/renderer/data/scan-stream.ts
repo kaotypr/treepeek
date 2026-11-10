@@ -13,7 +13,7 @@ import type { Checkout } from "../../shared/domain/scan";
 import type { IpcError } from "../../shared/ipc/result";
 import { core, newRequestId } from "./client";
 import { keys } from "./keys";
-import { emptyScan, type ScanData } from "./scan-model";
+import { emptyScan, type ScanData, scanRootProblem } from "./scan-model";
 
 export interface ScanStream {
   /** Opens the session again and rescans; what is on screen stays until it is replaced. */
@@ -115,10 +115,11 @@ export function startScan(
 
   const fail = (error: IpcError) => {
     active = false;
+    const scanRoot = error.code === "invalidRequest" ? scanRootProblem(error.detail) : undefined;
     write((scan) => ({
       ...scan,
       phase: "failed",
-      error: { code: error.code, message: error.message },
+      error: { code: error.code, message: error.message, ...(scanRoot ? { scanRoot } : {}) },
     }));
     options.onSettled?.(read());
   };

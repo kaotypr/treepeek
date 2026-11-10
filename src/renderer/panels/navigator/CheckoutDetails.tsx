@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback } from "react";
 import { type Checkout, isKnownStart } from "../../../shared/domain/scan";
 import { BranchIcon } from "../../components/icons";
 import { useScan } from "../../data/hooks/useScan";
@@ -11,8 +11,9 @@ import {
   uncommittedCount,
 } from "../../data/scan-model";
 import { compactDate, fullDate, shortCommit } from "../../lib/format";
-import { uiStore } from "../../state/ui-store";
+import { uiStore, useUi } from "../../state/ui-store";
 import { ComparisonPopover } from "./ComparisonPopover";
+import { OpenInMenu } from "./OpenInMenu";
 import { StartOverrideDialog } from "./StartOverrideDialog";
 
 const linkButton =
@@ -23,7 +24,8 @@ const linkButton =
  * first seen from, its counts, and the previous and next checkout of the same repository.
  */
 export function CheckoutDetails({ checkout }: { checkout: Checkout }) {
-  const [settingStart, setSettingStart] = useState(false);
+  const settingStart = useUi((state) => state.startDialogOpen);
+  const setSettingStart = useUi((state) => state.setStartDialogOpen);
   const details = useScan(
     useCallback(
       (scan: ScanData) => ({
@@ -135,7 +137,7 @@ export function CheckoutDetails({ checkout }: { checkout: Checkout }) {
       )}
 
       <div className="mt-1 flex items-center gap-2">
-        <div data-slot="open-in" className="contents" />
+        <OpenInMenu />
         <div className="ml-auto flex gap-1">
           <NeighbourButton
             label="← Previous event"
