@@ -7,7 +7,7 @@ import type { MessagePortMain } from "electron";
 import * as v from "valibot";
 import { CONTRACT_VERSION, type CoreToMain, coreCalls, MainToCoreSchema, ok } from "../shared/ipc";
 import { CoreState } from "./cache/shared-state";
-import type { DiscoverOptions } from "./git/discover";
+import { type DiscoverOptions, discoverGit, probeGit } from "./git/discover";
 import { rediscoverGit } from "./git/runtime";
 import { registerSessionCalls } from "./handlers";
 import { validatePaths } from "./handlers/paths";
@@ -47,9 +47,25 @@ function send(message: CoreToMain): void {
 /** What discovery runs with; `core.init` sets both, `settings.gitPath` changes the override. */
 const discovery: DiscoverOptions = { override: null, loginPath: null };
 
+/**
+ * Test-only (honoured only with `NODE_ENV=test`): discovery tries the override alone, as on
+ * a Mac with no git anywhere else, so end-to-end tests can reach the git setup screen.
+ */
+const OVERRIDE_ONLY_ENV = "TREEPEEK_E2E_GIT_OVERRIDE_ONLY";
+const overrideOnly = process.env.NODE_ENV === "test" && process.env[OVERRIDE_ONLY_ENV] === "1";
+const NOWHERE = "/nonexistent/treepeek-e2e/git";
+
+function discover(options: DiscoverOptions) {
+  if (!overrideOnly) return discoverGit(options);
+  return discoverGit(
+    { override: options.override, loginPath: null },
+    { knownLocations: [], systemGit: NOWHERE },
+  );
+}
+
 /** Runs git discovery and reports the result to main, which forwards it to every window. */
 async function discoverAndReport(): Promise<void> {
-  const state = await rediscoverGit({ ...discovery });
+  const state = await rediscoverGit({ ...discovery }, discover);
   // A newer discovery started meanwhile; it reports instead.
   if (state === undefined) return;
   log.info("git discovery", state);
@@ -136,6 +152,21 @@ parentPort.on("message", (event) => {
       discovery.override = message.path;
       void discoverAndReport();
       return;
+    case "git.probe": {
+      const { id, path } = message;
+      probeGit(
+        path,
+        overrideOnly ? null : discovery.loginPath,
+        overrideOnly ? { systemGit: NOWHERE } : {},
+      ).then(
+        (state) => send({ type: "git.probe", id, state }),
+        (error: unknown) => {
+          log.error("git.probe failed", error);
+          send({ type: "git.probe", id, state: { found: false, problem: "notFound" } });
+        },
+      );
+      return;
+    }
     case "paths.validate": {
       const { id, paths } = message;
       validatePaths(sessions.all(), paths).then(

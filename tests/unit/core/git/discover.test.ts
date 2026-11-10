@@ -8,6 +8,7 @@ import {
   discoverGit,
   KNOWN_GIT_LOCATIONS,
   parseGitVersion,
+  probeGit,
   SYSTEM_GIT,
 } from "../../../../src/core/git/discover";
 import { observeSpawns } from "../../../../src/core/git/process";
@@ -232,5 +233,59 @@ describe("discoverGit", () => {
   it("names the real macOS locations by default", () => {
     expect(KNOWN_GIT_LOCATIONS).toEqual(["/opt/homebrew/bin/git", "/usr/local/bin/git"]);
     expect(SYSTEM_GIT).toBe("/usr/bin/git");
+  });
+});
+
+describe("probeGit", () => {
+  const deps = (more: DiscoverDeps = {}): DiscoverDeps => ({
+    platform: "darwin",
+    systemGit: join(root, "no-system-git"),
+    ...more,
+  });
+
+  it("accepts a git at least the minimum version", async () => {
+    const git = fakeGit("probe-new", NEW);
+    expect(await probeGit(git, null, deps())).toEqual({ found: true, path: git, version: NEW });
+  });
+
+  it("names a git below the minimum as too old, without looking anywhere else", async () => {
+    const old = fakeGit("probe-old", OLD);
+    fakeGit("probe-elsewhere", NEW);
+    expect(await probeGit(old, join(root, "probe-elsewhere"), deps())).toEqual({
+      found: false,
+      problem: "tooOld",
+      detail: expect.stringContaining(`Git ${OLD} at ${old} is older than`),
+    });
+  });
+
+  it("refuses a missing file, a relative path and a program that is not git", async () => {
+    const liar = join(root, "probe-liar", "git");
+    mkdirSync(dirname(liar), { recursive: true });
+    writeFileSync(liar, "#!/bin/sh\necho hello\n", { mode: 0o755 });
+    for (const path of [join(root, "nowhere", "git"), "bin/git", liar]) {
+      expect(await probeGit(path, null, deps())).toMatchObject({
+        found: false,
+        problem: "notFound",
+      });
+    }
+  });
+
+  it("does not run macOS's git shim without the Command Line Tools", async () => {
+    const { state, spawned } = await (async () => {
+      const seen: string[] = [];
+      const stop = observeSpawns((event) => {
+        if (event.type === "spawn") seen.push(event.file);
+      });
+      try {
+        return {
+          state: await probeGit(systemGit, null, deps({ systemGit, xcodeSelect: toolsMissing })),
+          spawned: seen,
+        };
+      } finally {
+        stop();
+      }
+    })();
+    expect(state).toMatchObject({ found: false, problem: "xcodeMissing" });
+    expect(spawned).toEqual([toolsMissing]);
   });
 });
