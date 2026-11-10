@@ -1,0 +1,154 @@
+# Every pull request, from a fork or not, and every push to main. No secrets: everything here
+# runs with the read-only token, so fork contributors get the same full feedback.
+#
+# Security rules for this repository's workflows:
+# - Never use `pull_request_target` (or `workflow_run`) to check out or run pull request code.
+# - Pin every third-party action to a full commit SHA, with its version in a comment.
+# - Keep `permissions: contents: read` at the top; a job that needs more asks for it itself.
+#
+# The job names are the required status checks of the `main` ruleset
+# (docs/repository-settings.md). Renaming a job means updating the ruleset too.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  # docs/platform-notes.md records the versions this setup was confirmed with.
+  BUN_VERSION: "1.4.3"
+  NODE_VERSION: "24"
+  # Builds here are unsigned: never look for a signing identity.
+  CSC_IDENTITY_AUTO_DISCOVERY: "false"
+
+jobs:
+  checks:
+    name: Lint, typecheck and unit tests
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          package-manager-cache: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - name: Cache Bun's packages and Electron's download
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.bun/install/cache
+            ~/Library/Caches/electron
+          key: deps-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bun.lock') }}
+          restore-keys: deps-${{ runner.os }}-${{ runner.arch }}-
+      - run: bun install --frozen-lockfile
+      - name: Biome
+        run: bun run lint
+      - name: TypeScript
+        run: bun run typecheck
+      - name: Vitest (unit and integration tests, on real git repositories)
+        run: bun run test
+
+  package:
+    name: Package and end-to-end tests
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          package-manager-cache: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - name: Cache Bun's packages and Electron's download
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.bun/install/cache
+            ~/Library/Caches/electron
+          key: deps-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bun.lock') }}
+          restore-keys: deps-${{ runner.os }}-${{ runner.arch }}-
+      - run: bun install --frozen-lockfile
+      - name: Package the unsigned app (notices, build, electron-builder --dir)
+        run: bun run package
+      - name: Playwright against the packaged app
+        run: bun run test:e2e
+        env:
+          APP_TARGET: packaged
+          TREEPEEK_E2E_TRACE: "1"
+      - name: Upload the traces and app logs of failed tests
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: playwright-traces
+          path: test-results/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  licenses:
+    name: License allow-list
+    runs-on: macos-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - name: Cache Bun's packages
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-${{ runner.os }}-${{ runner.arch }}-
+      # The check reads package manifests only, so no install scripts (and no Electron).
+      - run: bun install --frozen-lockfile --ignore-scripts
+      - name: Generate the third-party notices
+        run: bun run notices
+      - name: Check shipped licenses against build/license-allowlist.json
+        run: bun run licenses:check
+
+  electronegativity:
+    name: Electronegativity
+    runs-on: macos-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          package-manager-cache: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - name: Scan src/ for Electron misconfigurations
+        env:
+          # Electronegativity's own dependencies need no install scripts.
+          npm_config_ignore_scripts: "true"
+        run: |
+          electron_version="$(node -p 'require("./package.json").devDependencies.electron')"
+          npx --yes @doyensec/electronegativity@1.10.3 \
+            --input src --relative --verbose false \
+            --electron-version "$electron_version" \
+            --output electronegativity.sarif
+      - name: Fail on findings not in build/electronegativity-reviewed.json
+        run: bun ./build/check-electronegativity.ts electronegativity.sarif src
