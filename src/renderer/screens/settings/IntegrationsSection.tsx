@@ -1,5 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { type ReactNode, useEffect, useId, useState } from "react";
+import { commandTemplateProblem } from "../../../shared/command-template";
 import type { DetectedApp } from "../../../shared/ipc/contract";
 import type { AppChoice } from "../../../shared/settings";
 import { Button } from "../../components/ui/button";
@@ -139,7 +140,16 @@ function AppChoiceField({
   };
 
   const saveCommand = async () => {
-    const message = await onSave({ kind: "custom", command: draft });
+    const command = draft.trim();
+    const local = !command.includes("{path}")
+      ? "The command must contain {path}"
+      : commandTemplateProblem(command);
+    if (local !== null) {
+      setProblem(local);
+      setSaved(false);
+      return;
+    }
+    const message = await onSave({ kind: "custom", command });
     setProblem(message);
     setSaved(message === null);
   };

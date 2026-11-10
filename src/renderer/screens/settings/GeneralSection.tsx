@@ -2,7 +2,7 @@ import { useId } from "react";
 import { APPEARANCES, type Appearance } from "../../../shared/settings";
 import { Switch } from "../../components/ui/switch";
 import { Field, SectionTitle } from "./Field";
-import { useSettings } from "./use-settings";
+import { useChoice, useSettings } from "./use-settings";
 
 const LABELS: Readonly<Record<Appearance, string>> = {
   system: "System",
@@ -15,23 +15,28 @@ export function GeneralSection() {
   const { settings, save } = useSettings();
   const name = useId();
   const restoreId = useId();
+  const [appearance, setAppearance] = useChoice<Appearance | null>(settings?.appearance ?? null);
+  const [restore, setRestore] = useChoice(settings?.restoreWindows ?? true);
   return (
     <section aria-labelledby="settings-general" data-testid="settings-general">
       <SectionTitle id="settings-general">General</SectionTitle>
       <Field label="Appearance" description="System follows macOS, including Auto at sunset.">
         <div role="radiogroup" aria-label="Appearance" className="flex gap-4">
-          {APPEARANCES.map((appearance) => (
-            <label key={appearance} className="flex items-center gap-1.5">
+          {APPEARANCES.map((candidate) => (
+            <label key={candidate} className="flex items-center gap-1.5">
               <input
                 type="radio"
                 name={name}
-                value={appearance}
-                checked={settings?.appearance === appearance}
-                onChange={() => void save({ appearance })}
+                value={candidate}
+                checked={appearance === candidate}
+                onChange={() => {
+                  setAppearance(candidate);
+                  void save({ appearance: candidate });
+                }}
                 className="accent-primary-strong"
-                data-testid={`appearance-${appearance}`}
+                data-testid={`appearance-${candidate}`}
               />
-              {LABELS[appearance]}
+              {LABELS[candidate]}
             </label>
           ))}
         </div>
@@ -43,8 +48,11 @@ export function GeneralSection() {
       >
         <Switch
           id={restoreId}
-          checked={settings?.restoreWindows ?? true}
-          onCheckedChange={(checked) => void save({ restoreWindows: checked })}
+          checked={restore}
+          onCheckedChange={(checked) => {
+            setRestore(checked);
+            void save({ restoreWindows: checked });
+          }}
           data-testid="restore-windows"
         />
       </Field>

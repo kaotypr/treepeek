@@ -2,14 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import { type Fixture, fixture } from "../support/git-fixture";
-import {
-  type App,
-  launchApp,
-  launchLog,
-  launchWithFolder,
-  target,
-  windowKind,
-} from "./support/app";
+import { launchApp, launchLog, launchWithFolder, target, windowKind } from "./support/app";
 import { selectCheckout, selectFile, waitForScan } from "./support/review";
 
 /**
