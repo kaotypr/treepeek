@@ -18,13 +18,14 @@ the same pull request and say why.
 | Build `out/`                                                     | `bun run build`                                                         |
 | Lint and format check                                            | `bun run lint` (fix formatting with `bun run format`)                   |
 | Type-check                                                       | `bun run typecheck`                                                     |
-| Unit tests                                                       | `bun run test`                                                          |
+| Unit and integration tests                                       | `bun run test`                                                          |
 | Build the development pages into `out-lab/`                      | `bun run build:lab`                                                     |
 | End-to-end tests (needs `bun run build` and `bun run build:lab`) | `bun run test:e2e`                                                      |
 | Watch an end-to-end run (windows shown normally)                 | `TREEPEEK_E2E_SHOW=1 bun run test:e2e`                                  |
 | Diff viewer performance (local machine only)                     | `TREEPEEK_PERF=1 bun run test:e2e tests/e2e/diff-lab.perf.spec.ts`      |
 | File list performance, 5,000 files (local machine only)          | `TREEPEEK_PERF=1 bun run test:e2e tests/e2e/file-list.perf.spec.ts`     |
 | Review status after a scan of 30 checkouts (local machine only)  | `TREEPEEK_PERF=1 bun run test:e2e tests/e2e/review-status.perf.spec.ts` |
+| Live refresh timing, streams and memory (local machine only)     | `TREEPEEK_PERF=1 bun run test:e2e tests/e2e/live-refresh.perf.spec.ts`  |
 | Package an unsigned arm64 app                                    | `bun run package`                                                       |
 | End-to-end tests against the package                             | `APP_TARGET=packaged bun run test:e2e`                                  |
 | Prototype parity check (local only)                              | `TREEPEEK_PROTOTYPE=<prototype checkout> bun scripts/parity-check.ts`   |
@@ -97,6 +98,8 @@ the code to the process that owns it.
 | Local store (worktree identity, start overrides, review marks, snapshot files) | `src/core/store/` (`snapshots.ts` for the snapshot folder)                                                  |
 | Review marks: status, marking, "Since you viewed", pruning, background status  | `src/core/review/`; renderer `data/hooks/useReviewStatus.ts`, `data/review-model.ts`, `state/undo.ts`       |
 | Caches and per-repository state shared by sessions                             | `src/core/cache/` (`CoreState` in `shared-state.ts`)                                                        |
+| Live refresh: watchers, classifying events, debounce, storms, refresh tasks    | `src/core/watch/` (`live.ts`, `manager.ts`, `refresh.ts`); renderer `data/refresh-sync.ts`                  |
+| The Mac waking from sleep                                                      | `src/main/power.ts` (main tells the core service `power.resume`)                                            |
 | The preload API                                                                | `src/preload/index.ts`, its type in `src/shared/ipc/api.ts`                                                 |
 | Settings file                                                                  | `src/main/settings.ts`, schema in `src/shared/settings.ts`                                                  |
 | Custom command templates (split without a shell)                               | `src/shared/command-template.ts`, `src/main/open-in/template.ts`                                            |
@@ -218,7 +221,11 @@ These carry Electron's security checklist into this codebase. Breaking one is a 
 ## Tests
 
 - Unit tests live in `tests/unit` (Vitest, Node environment for `shared`, `core` and
-  `main`; happy-dom for `renderer`).
+  `main`; happy-dom for `renderer`). `tests/integration` holds the core service's tests
+  that need real watchers on real repositories; `bun run test` runs both.
+- A test that watches folders stops every watcher before it deletes them
+  (`Harness.disposeAndWait`): `@parcel/watcher` stops a stream itself when its folder goes,
+  and an unsubscribe of the same stream at that moment corrupts memory.
 - Anything that reads git output is tested against a real temporary repository made with
   `tests/support/git.ts`. Never mock git.
 - End-to-end tests live in `tests/e2e` and drive the app over the DevTools protocol
@@ -235,8 +242,12 @@ These carry Electron's security checklist into this codebase. Breaking one is a 
   `src/main/test-hooks.ts` (honoured only with `NODE_ENV=test`): `TREEPEEK_E2E_LAUNCH_LOG`
   records what "Open in…" would run, `TREEPEEK_E2E_DIALOG` answers open dialogs,
   `TREEPEEK_E2E_MENU` clicks native menu items (`wait:<id>` waits for one to be enabled),
-  and `TREEPEEK_E2E_GIT_OVERRIDE_ONLY` limits git discovery to the override. Each run's
-  page announces its commands as `treepeek:command` events, which tests count.
+  `TREEPEEK_E2E_GIT_OVERRIDE_ONLY` limits git discovery to the override, and
+  `TREEPEEK_E2E_WATCHER_FAULT` (`fsevents`, `fs.watch`, comma-separated) makes those watcher
+  backends fail. The test-only calls `test.liveRefresh` (core: watcher backend,
+  subscriptions, memory, call counts, dropping events) and `test.powerResume` (main: as if
+  the Mac woke) answer only with `NODE_ENV=test` too. Each run's page announces its
+  commands as `treepeek:command` events, which tests count.
 - Every bug fix comes with a test that fails without the fix.
 - A test must be able to fail: assert behaviour, not that code ran.
 
