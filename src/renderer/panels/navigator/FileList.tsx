@@ -237,11 +237,13 @@ export function FileList() {
                   {state === undefined || checkoutPath === null ? (
                     <span aria-hidden="true" className="size-3 shrink-0" />
                   ) : (
+                    // The list holds focus and the row says the state, so the checkbox is for
+                    // the mouse only; the keyboard marks with V.
                     <input
                       type="checkbox"
                       tabIndex={-1}
+                      aria-hidden="true"
                       checked={state === "viewed"}
-                      aria-label={`Viewed: ${file.path}`}
                       title={state === "viewed" ? "Viewed (V)" : "Mark as viewed (V)"}
                       onClick={(event) => event.stopPropagation()}
                       onChange={(event) =>
@@ -270,10 +272,10 @@ export function FileList() {
                     {label}
                     <span className="sr-only">
                       , {file.status}
-                      {state ? `, ${VIEWED_LABEL[state]}` : ""}
                       {file.category ? ", " : ""}
                     </span>
                   </span>
+                  {state && <span className="sr-only">, {VIEWED_LABEL[state]}</span>}
                   {state === "changedSinceViewed" && (
                     <span
                       aria-hidden="true"
