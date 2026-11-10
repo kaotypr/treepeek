@@ -1,5 +1,5 @@
 import { delimiter, join } from "node:path";
-import { app, BrowserWindow, Menu, nativeTheme, session, shell } from "electron";
+import { app, BrowserWindow, Menu, nativeTheme, powerMonitor, session, shell } from "electron";
 import type { CheckableCommandId, CommandId } from "../shared/commands";
 import { err, mainCalls, mainEvents, ok, type WindowKind } from "../shared/ipc";
 import type { Settings } from "../shared/settings";
@@ -21,11 +21,12 @@ import {
 import { systemDetectDeps } from "./open-in/detect";
 import { OpenIn } from "./open-in/index";
 import { type Launcher, recordingLauncher, systemLauncher } from "./open-in/launcher";
+import { forwardPowerResume } from "./power";
 import { APP_URL, isAppUrl, registerAppProtocol, registerAppSchemePrivileged } from "./protocol";
 import { SettingsStore } from "./settings";
 import { SETTINGS_WINDOW_SIZE, SettingsWindow } from "./settings-window";
 import { loadLoginEnv } from "./shell-env";
-import { testLaunchLog, testMenuClicks } from "./test-hooks";
+import { testHooksEnabled, testLaunchLog, testMenuClicks } from "./test-hooks";
 import { applyAppearance, onThemeChanged, resolvedTheme, themeState } from "./theme";
 import {
   createWindow,
@@ -494,6 +495,16 @@ function start(): void {
 
   supervisor.onState((state) => {
     for (const win of windows.all()) emitToWindow(win, mainEvents["core.state"], { state }, log);
+  });
+  // Live refresh catches up after sleep: FSEvents may have dropped events meanwhile.
+  forwardPowerResume(powerMonitor, () => supervisor.powerResumed(), log.child("power"));
+  handleMain(mainCalls["test.powerResume"], () => {
+    if (!testHooksEnabled()) {
+      return err("invalidRequest", "test.powerResume is only available in end-to-end test runs.");
+    }
+    log.info("test: acting as if the Mac woke from sleep");
+    supervisor.powerResumed();
+    return ok({});
   });
   supervisor.onGitState((state) => {
     for (const win of everyWindow()) emitToWindow(win, mainEvents["git.state"], state, log);

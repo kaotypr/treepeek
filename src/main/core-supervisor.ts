@@ -132,6 +132,14 @@ export class CoreSupervisor {
   }
 
   /**
+   * The Mac woke from sleep: the core service checks every window's checkouts again (live
+   * refresh). Dropped while the service is not ready; a restarted one rescans anyway.
+   */
+  powerResumed(): void {
+    this.#post({ type: "power.resume" });
+  }
+
+  /**
    * Asks the core service whether one binary is a usable git, without making it the one
    * Treepeek runs. Answers why not when the service is not running or does not answer.
    */
