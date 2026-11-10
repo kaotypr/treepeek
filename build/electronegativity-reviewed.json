@@ -1,0 +1,29 @@
+{
+  "$comment": "Electronegativity findings on src/ that were reviewed and accepted, by check and file. `count` is how many instances the review covered; one more fails the check. Checked by build/check-electronegativity.ts in CI.",
+  "findings": [
+    {
+      "check": "AUXCLICK_JS_CHECK",
+      "file": "src/main/windows.ts",
+      "count": 1,
+      "reason": "createWindow, the only place windows are made, calls guardWebContents on every window: setWindowOpenHandler denies every new window, so a middle-click cannot open one, and will-navigate and will-redirect are prevented."
+    },
+    {
+      "check": "PRELOAD_JS_CHECK",
+      "file": "src/main/windows.ts",
+      "count": 1,
+      "reason": "The preload is the app's own bundled script. It runs sandboxed with context isolation and exposes only the frozen window.treepeek API built from the IPC contract, never ipcRenderer or Node."
+    },
+    {
+      "check": "OPEN_EXTERNAL_JS_CHECK",
+      "file": "src/main/index.ts",
+      "count": 1,
+      "reason": "Help menu items open one of the two fixed GitHub URLs in the frozen HELP_LINKS map (src/main/menu.ts), chosen by key in main. No renderer input reaches shell.openExternal."
+    },
+    {
+      "check": "CSP_GLOBAL_CHECK",
+      "file": "src/renderer/index.html",
+      "count": 1,
+      "reason": "The finding is the CSP evaluator's general caution that script-src 'self' is risky when the origin also serves JSONP, Angular or user uploads. 'self' is app://, which serves only the bundled files in out/renderer (src/main/protocol.ts)."
+    }
+  ]
+}

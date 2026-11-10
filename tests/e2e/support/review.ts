@@ -38,15 +38,23 @@ export async function listedFiles(page: Page): Promise<string[]> {
 
 /**
  * Clicks the file's row. The list is virtualized, so a row far down is not rendered: the
- * filter brings it up first, and is cleared again once the file is selected.
+ * filter brings it up first, and is cleared again once the file is selected. Either way the
+ * list ends up holding the focus, as after a click, so a shortcut pressed next reaches the
+ * app instead of being typed into the filter.
  */
 export async function selectFile(page: Page, path: string): Promise<void> {
-  const row = page.getByTestId("file-list").locator(`[role="option"][data-path="${path}"]`).first();
+  const list = page.getByTestId("file-list");
+  // Look for the row in the loaded list: one still loading has no rows yet.
+  await expect(list.getByText("Loading changes…")).toHaveCount(0);
+  const row = list.locator(`[role="option"][data-path="${path}"]`).first();
   const filter = page.getByTestId("file-filter");
   const filtered = (await row.count()) === 0;
   if (filtered) await filter.fill(path);
   await row.click();
-  if (filtered) await filter.fill("");
+  if (filtered) {
+    await filter.fill("");
+    await list.getByRole("listbox").focus();
+  }
   await expect(page.getByTestId("preview-title")).toContainText(path);
 }
 

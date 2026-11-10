@@ -1,0 +1,26 @@
+# Weekly dependency updates. Bun's ecosystem updates package.json and bun.lock together
+# (the npm ecosystem does not read bun.lock). Commit messages follow the repository's
+# Conventional Commits.
+version: 2
+updates:
+  - package-ecosystem: bun
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+    commit-message:
+      prefix: build
+    groups:
+      # Minor and patch updates come as one pull request; each major update as its own.
+      minor-and-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: build
+    groups:
+      actions:
+        patterns: ["*"]

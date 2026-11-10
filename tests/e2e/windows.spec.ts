@@ -78,6 +78,7 @@ test.describe(`windows (${target})`, () => {
       await first.close();
     }
     const second = await launchApp({ userDataDir });
+    let area: { x: number; y: number; width: number; height: number };
     try {
       await waitFor(
         async () =>
@@ -88,15 +89,38 @@ test.describe(`windows (${target})`, () => {
       );
       const roots = await Promise.all(second.pages().map((page) => scanRootOf(page)));
       expect(roots.sort()).toEqual([...folders].sort());
+      // The work area of the display the windows open on: macOS moves a window that does not
+      // fit inside it, and displays differ between machines (CI's is smaller than a laptop's).
+      area = await second.page.evaluate(() => {
+        // Chromium has the non-standard availLeft and availTop the DOM types leave out.
+        const display = screen as Screen & { availLeft?: number; availTop?: number };
+        return {
+          x: display.availLeft ?? 0,
+          y: display.availTop ?? 0,
+          width: display.availWidth,
+          height: display.availHeight,
+        };
+      });
     } finally {
       await second.close();
     }
 
-    const bounds = [
-      { x: 60, y: 120, width: 1000, height: 640 },
-      { x: 90, y: 150, width: 1100, height: 700 },
-      { x: 120, y: 180, width: 960, height: 600 },
-    ];
+    // Three different sizes and positions, each inside that work area.
+    const bounds = [0, 1, 2].map((index) => {
+      const inset = 8 + index * 16;
+      return {
+        x: area.x + inset,
+        y: area.y + inset,
+        width: Math.min(1100 - index * 60, area.width - inset - 8),
+        height: Math.min(700 - index * 40, area.height - inset - 8),
+      };
+    });
+    for (const { width, height } of bounds) {
+      // SCAN_WINDOW_SIZE's minimum; a smaller window would be enlarged.
+      expect(width >= 880 && height >= 560, `a display with room for ${width}×${height}`).toBe(
+        true,
+      );
+    }
     const seeded = await launchApp({
       settings: {
         version: 1,

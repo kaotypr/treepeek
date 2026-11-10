@@ -60,6 +60,9 @@ const DUBIOUS_OWNERSHIP = [
 
 const NOT_A_REPOSITORY = [
   /not a git repository/i,
+  // Git 2.56 and later, for a `.git` file whose gitdir is gone; earlier Git says "not a git
+  // repository" for that too.
+  /gitfile does not point to a valid repository/i,
   /cannot change to '/i,
   /this operation must be run in a work tree/i,
 ];

@@ -1,4 +1,11 @@
-import { chmodSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { delimiter, join, resolve } from "node:path";
 import { expect, test } from "@playwright/test";
 import { testGitPath } from "../support/git";
@@ -16,6 +23,9 @@ import { waitForScan } from "./support/review";
 const packageJson = JSON.parse(
   readFileSync(resolve(import.meta.dirname, "../../package.json"), "utf8"),
 ) as { version: string };
+
+/** Written by `bun run notices`, which `bun run package` runs first. */
+const GENERATED_NOTICES = resolve(import.meta.dirname, "../../build/THIRD_PARTY_NOTICES");
 
 function savedGitPath(app: App): unknown {
   return JSON.parse(readFileSync(join(app.userDataDir, "settings.json"), "utf8")).gitPath;
@@ -185,7 +195,7 @@ test.describe(`special screens (${target})`, () => {
     }
   });
 
-  test("About shows the version, the license and the copyright, as one window", async () => {
+  test("About shows the version, the license, the copyright and the notices, as one window", async () => {
     const app = await launchApp({ env: { TREEPEEK_E2E_MENU: "about,help.acknowledgements" } });
     try {
       const about = await app.waitForPage(
@@ -199,7 +209,21 @@ test.describe(`special screens (${target})`, () => {
       await expect(about.getByTestId("about-copyright")).toHaveText(
         "Copyright 2026 Adhitya Yosua Sanjaya Andaria",
       );
-      await expect(about.getByTestId("acknowledgements")).toContainText("Acknowledgements");
+      const acknowledgements = about.getByTestId("acknowledgements");
+      await expect(acknowledgements).toContainText("Acknowledgements");
+      // The NOTICE file: the packaged app carries it in Contents/Resources, a source build
+      // reads it from the checkout.
+      await expect(acknowledgements).toContainText(
+        "Treepeek — Copyright 2026 Adhitya Yosua Sanjaya Andaria",
+      );
+      await expect(about.getByTestId("acknowledgements-missing")).toHaveCount(0);
+      // The generated third-party notices: always in a package (`bun run package` generates
+      // them first), and in a source build once `bun run notices` has written them.
+      if (target === "packaged" || existsSync(GENERATED_NOTICES)) {
+        await expect(acknowledgements).toContainText("THIRD-PARTY SOFTWARE NOTICES");
+        await expect(acknowledgements).toContainText(/^@pierre\/diffs \d/m);
+        await expect(acknowledgements).toContainText("Syntax grammars bundled through Shiki");
+      }
       await expect.poll(() => app.log("main")).toContain("focused the about window");
       const kinds = await Promise.all(app.pages().map((page) => windowKind(page)));
       expect(kinds.filter((kind) => kind === "about")).toHaveLength(1);

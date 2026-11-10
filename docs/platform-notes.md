@@ -41,6 +41,9 @@ Things that made it work, or that the next person should know:
   hoisted layout works; see "Live refresh" below for what it packs.
 - The clean install reused Electron's download cache (`~/Library/Caches/electron`). A
   first-ever download on a new machine goes through the same `install-electron` step.
+- **`bun run` runs `pre` scripts.** `bun run package` runs `prepackage` first, which writes
+  `build/THIRD_PARTY_NOTICES` for electron-builder to copy into `Contents/Resources`
+  (confirmed 2026-11-10 with Bun 1.4.3: the package log starts with `$ bun run notices`).
 
 ## `node:sqlite` in the core service: available
 
@@ -177,6 +180,10 @@ What is not confirmed:
   `diff-options.txt` never documents it.
 - Git 2.55.0 prints `iso-strict` dates in UTC with `Z`, not `+00:00`. The reflog parser
   accepts both.
+- For a `.git` file whose gitdir is gone, Git 2.56.0 says `fatal: gitfile does not point to
+  a valid repository: <folder>/.git` where 2.55.0 said `fatal: not a git repository:
+  <gitdir>`. `classifyGitFailure` (`src/core/git/errors.ts`) reads both as
+  `notARepository`. Seen on 2026-11-10 with the GitHub macOS runner's Homebrew Git 2.56.0.
 
 ## Scan baseline
 

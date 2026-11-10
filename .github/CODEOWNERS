@@ -1,0 +1,5 @@
+# Workflows, templates and repository automation, and what decides how the app is packaged
+# and which licenses it may ship, are reviewed by the maintainer.
+/.github/ @kaotypr
+/electron-builder.yml @kaotypr
+/build/ @kaotypr

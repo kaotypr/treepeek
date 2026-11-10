@@ -14,4 +14,7 @@ export default defineConfig({
   expect: { timeout: 5_000 },
   reporter: [["list"]],
   outputDir: "test-results",
+  // With traces on (`TREEPEEK_E2E_TRACE=1`, in CI), keep a test's trace and logs only when it
+  // fails. The performance specs write their results next to these folders, not inside them.
+  preserveOutput: process.env.TREEPEEK_E2E_TRACE === "1" ? "failures-only" : "always",
 });

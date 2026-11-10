@@ -1,0 +1,69 @@
+name: Bug report
+description: Something in Treepeek does not work the way it should.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report this.
+
+        **A security problem does not belong here.** Report it privately instead, as
+        [SECURITY.md](https://github.com/kaotypr/treepeek/blob/main/SECURITY.md) explains.
+
+        Please leave out anything private from your repositories: file contents, secrets,
+        or paths you would rather not share.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What you did, what Treepeek showed, and any error message, word for word.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect instead?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: |
+        The smallest setup that shows the problem. A few `git` commands that build a
+        repository and its worktrees from scratch help the most.
+      placeholder: |
+        1. git init demo && cd demo && git commit --allow-empty -m first
+        2. git worktree add ../demo-feature
+        3. Open the folder that holds both in Treepeek
+        4. ...
+    validations:
+      required: true
+  - type: input
+    id: treepeek-version
+    attributes:
+      label: Treepeek version
+      description: Treepeek › About Treepeek, or "built from <commit>" for a source build.
+    validations:
+      required: true
+  - type: input
+    id: macos-version
+    attributes:
+      label: macOS version
+      placeholder: macOS 15.4 on an M2
+    validations:
+      required: true
+  - type: input
+    id: git-version
+    attributes:
+      label: Git version
+      description: Settings › Git shows the git Treepeek uses and its version.
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: |
+        Settings › Advanced › Open Logs Folder opens `main.log` and `core.log`. Paste the lines
+        around the problem. Logs can contain repository paths; edit out any you would rather
+        not share.
+      render: text

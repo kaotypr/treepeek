@@ -1,9 +1,9 @@
 import { type ChildProcess, spawn } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
-import { type Browser, chromium, type Page } from "@playwright/test";
+import { type Browser, type BrowserContext, chromium, type Page, test } from "@playwright/test";
 
 /**
  * Launches Treepeek for end-to-end tests and connects over the Chrome DevTools Protocol.
@@ -28,6 +28,14 @@ export const target = process.env.APP_TARGET === "packaged" ? "packaged" : "dev"
  * runs never pop windows up or take focus.
  */
 export const showWindows = process.env.TREEPEEK_E2E_SHOW === "1";
+
+/**
+ * `TREEPEEK_E2E_TRACE=1` (set in CI) records a Playwright trace of every app a test launches
+ * and keeps it, with the app's logs, in that test's output folder under `test-results/`.
+ * `playwright.config.ts` then keeps those folders only for tests that failed.
+ */
+export const recordTraces = process.env.TREEPEEK_E2E_TRACE === "1";
+let launches = 0;
 
 /** The lab build's folder: `bun run build:lab` writes it, tests add fixtures to it. */
 export const LAB_OUT_DIR = join(root, "out-lab");
@@ -120,6 +128,9 @@ export async function launchApp(options: LaunchOptions = {}): Promise<App> {
   );
 
   const browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`);
+  const launch = ++launches;
+  const traced = recordTraces ? browser.contexts()[0] : undefined;
+  await traced?.tracing.start({ screenshots: true, snapshots: true, title: `app ${launch}` });
   let page: Page | undefined;
   await waitFor(
     () => {
@@ -166,12 +177,29 @@ export async function launchApp(options: LaunchOptions = {}): Promise<App> {
       return existsSync(file) ? readFileSync(file, "utf8") : "";
     },
     close: async () => {
+      if (traced) await keepTrace(traced, userDataDir, launch);
       await browser.close().catch(() => undefined);
       if (child.exitCode === null) child.kill("SIGTERM");
       await Promise.race([exited, sleep(5_000)]);
       if (child.exitCode === null) child.kill("SIGKILL");
     },
   };
+}
+
+/** Saves the trace and the app's logs into the running test's output folder, if any. */
+async function keepTrace(context: BrowserContext, userDataDir: string, launch: number) {
+  let dir: string | null = null;
+  try {
+    dir = test.info().outputPath(`app-${launch}`);
+  } catch {
+    // Launched outside a test (a hook): there is no output folder to keep it in.
+  }
+  const stop = context.tracing
+    .stop(dir ? { path: join(dir, "trace.zip") } : {})
+    .catch(() => undefined);
+  await Promise.race([stop, sleep(10_000)]);
+  const logs = join(userDataDir, "logs");
+  if (dir && existsSync(logs)) cpSync(logs, join(dir, "logs"), { recursive: true });
 }
 
 /** Starts another instance on the same profile, as a second double-click would. */

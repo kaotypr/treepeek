@@ -17,6 +17,18 @@ files:
   - package.json
   - "!**/*.map"
 
+# Copied into Contents/Resources, beside Electron's own LICENSE.electron.txt and
+# LICENSES.chromium.html. About › Acknowledgements reads NOTICE and THIRD_PARTY_NOTICES
+# from there (src/main/about.ts). `bun run package` generates build/THIRD_PARTY_NOTICES
+# first (`prepackage`, build/generate-notices.ts).
+extraResources:
+  - from: LICENSE
+    to: LICENSE
+  - from: NOTICE
+    to: NOTICE
+  - from: build/THIRD_PARTY_NOTICES
+    to: THIRD_PARTY_NOTICES
+
 asar: true
 asarUnpack:
   - "**/*.node"

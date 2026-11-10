@@ -14,6 +14,7 @@ export default defineConfig({
             "tests/unit/shared/**/*.test.ts",
             "tests/unit/core/**/*.test.ts",
             "tests/unit/main/**/*.test.ts",
+            "tests/unit/build/**/*.test.ts",
           ],
           // Tests create real temporary git repositories.
           testTimeout: 20_000,

@@ -10,7 +10,13 @@
       "@renderer/*": ["../src/renderer/*"]
     }
   },
-  "include": ["**/*.ts", "**/*.tsx", "../scripts/**/*.ts", "../src/preload/types.d.ts"],
+  "include": [
+    "**/*.ts",
+    "**/*.tsx",
+    "../scripts/**/*.ts",
+    "../build/**/*.ts",
+    "../src/preload/types.d.ts"
+  ],
   "references": [
     {
       "path": "../src/shared"
