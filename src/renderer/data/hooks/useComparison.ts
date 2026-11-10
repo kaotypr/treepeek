@@ -12,8 +12,8 @@ export function comparisonArgs(request: ComparisonRequest): ComparisonRequest {
 }
 
 /**
- * The selected checkout's file list for one comparison. It stays fresh until a rescan (or,
- * later, live refresh) invalidates it.
+ * The selected checkout's file list for one comparison. It stays fresh until a rescan or
+ * live refresh (`refresh-sync.ts`) invalidates it.
  */
 export function useComparison(checkoutPath: string | null, request: ComparisonRequest | null) {
   const ready = checkoutPath !== null && request !== null;
