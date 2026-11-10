@@ -6,7 +6,12 @@ import { commandForKey, installKeymap, shortcutLabel } from "../../../src/render
 import { startCommandReport } from "../../../src/renderer/commands/menu-state";
 import { clearCommands, registerCommand } from "../../../src/renderer/commands/registry";
 import { progressLabel } from "../../../src/renderer/components/ProgressRing";
-import { useMarkAll, useMarkFiles } from "../../../src/renderer/data/hooks/useReviewStatus";
+import {
+  useCachedReviewStatus,
+  useMarkAll,
+  useMarkFiles,
+  useReviewStatus,
+} from "../../../src/renderer/data/hooks/useReviewStatus";
 import { hideViewedFiles } from "../../../src/renderer/data/hooks/useSelection";
 import { keys } from "../../../src/renderer/data/keys";
 import {
@@ -302,5 +307,74 @@ describe("marking from the renderer", () => {
         { checkoutPath: "/w/a", action: "markAll", previous },
       ]),
     );
+  });
+});
+
+/** The checkout details: the one place that asks the core service for a status. */
+function Details({ path }: { path: string }) {
+  useReviewStatus(path);
+  return null;
+}
+
+/** A row, a ring or the file list: reads the cache only. */
+function Row({ path }: { path: string }) {
+  useCachedReviewStatus(path);
+  return null;
+}
+
+describe("asking for review status again", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+  let asked: string[];
+
+  beforeEach(() => {
+    (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+    asked = [];
+    const answers = [SAMPLE, withAllMarks(SAMPLE, true)];
+    const statusCall = async ({ checkoutPaths }: { checkoutPaths: string[] }) => {
+      asked.push(...checkoutPaths);
+      return { ok: true, value: [answers[Math.min(asked.length, answers.length) - 1]] };
+    };
+    Object.defineProperty(window, "treepeek", {
+      value: { core: { review: { status: statusCall } }, on: () => () => {} },
+      configurable: true,
+    });
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+  });
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  it("refetches the selected checkout after a scan, even when a cache reader rendered last", async () => {
+    const client = createQueryClient();
+    await act(async () => {
+      root.render(
+        <Providers client={client}>
+          <Details path="/w/a" />
+          <Row path="/w/a" />
+          <Row path="/w/b" />
+        </Providers>,
+      );
+    });
+    await vi.waitFor(() => expect(asked).toEqual(["/w/a"]));
+
+    // What ScanWindow does once a scan is done.
+    await act(async () => {
+      await client.invalidateQueries({ queryKey: keys.reviewStatuses() });
+    });
+
+    const query = client.getQueryCache().find({ queryKey: keys.reviewStatus("/w/a") });
+    expect(query?.state.error ?? null).toBeNull();
+    expect(asked).toEqual(["/w/a", "/w/a"]);
+    expect(client.getQueryData<ReviewStatus>(keys.reviewStatus("/w/a"))).toMatchObject({
+      viewed: 3,
+    });
+    // A checkout only rows show is left to the core service's `review.changed`.
+    expect(
+      client.getQueryCache().find({ queryKey: keys.reviewStatus("/w/b") })?.state.error ?? null,
+    ).toBeNull();
   });
 });
