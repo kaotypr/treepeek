@@ -19,6 +19,8 @@ export const COMMAND_RUN_EVENT = "treepeek:command";
 interface Command {
   run: () => void;
   isEnabled: () => boolean;
+  /** For a command shown with a check mark: whether it is on. */
+  isChecked?: () => boolean;
 }
 
 const commands = new Map<CommandId, Command>();
@@ -42,8 +44,9 @@ export function registerCommand(
   id: CommandId,
   run: () => void,
   isEnabled: () => boolean = () => true,
+  isChecked?: () => boolean,
 ): () => void {
-  const command: Command = { run, isEnabled };
+  const command: Command = { run, isEnabled, ...(isChecked ? { isChecked } : {}) };
   commands.set(id, command);
   notifyChange();
   return () => {
@@ -55,6 +58,11 @@ export function registerCommand(
 
 export function isCommandEnabled(id: CommandId): boolean {
   return commands.get(id)?.isEnabled() ?? false;
+}
+
+/** Whether a command that reports a check mark has it on. */
+export function isCommandChecked(id: CommandId): boolean {
+  return commands.get(id)?.isChecked?.() ?? false;
 }
 
 /** Runs a command when it is registered and enabled; answers whether it ran. */
@@ -84,15 +92,21 @@ export function clearCommands(): void {
  * Registers `id` while the calling component is mounted. `run` and `isEnabled` may change on
  * every render; the latest ones are used.
  */
-export function useCommand(id: CommandId, run: () => void, isEnabled?: () => boolean): void {
-  const latest = useRef({ run, isEnabled });
-  latest.current = { run, isEnabled };
+export function useCommand(
+  id: CommandId,
+  run: () => void,
+  isEnabled?: () => boolean,
+  isChecked?: () => boolean,
+): void {
+  const latest = useRef({ run, isEnabled, isChecked });
+  latest.current = { run, isEnabled, isChecked };
   useEffect(
     () =>
       registerCommand(
         id,
         () => latest.current.run(),
         () => latest.current.isEnabled?.() ?? true,
+        () => latest.current.isChecked?.() ?? false,
       ),
     [id],
   );

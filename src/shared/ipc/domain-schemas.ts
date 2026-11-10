@@ -1,5 +1,6 @@
 import * as v from "valibot";
 import { COMPARISON_KINDS } from "../domain/compare";
+import { FILE_REVIEW_STATES } from "../domain/review";
 import { IPC_ERROR_CODES } from "./result";
 
 /**
@@ -150,4 +151,26 @@ export const FileDiffSchema = v.object({
     highlightOff: v.boolean(),
   }),
   resultHash: v.string(),
+});
+
+export const FileReviewSchema = v.object({
+  path: v.string(),
+  state: v.picklist(FILE_REVIEW_STATES),
+  viewedHash: v.exactOptional(v.string()),
+  earlierAvailable: v.exactOptional(v.boolean()),
+});
+
+export const ReviewStatusSchema = v.object({
+  checkoutPath: v.string(),
+  worktreeId: v.string(),
+  total: Count,
+  viewed: Count,
+  changedSinceViewed: Count,
+  partialScope: v.boolean(),
+  files: v.array(FileReviewSchema),
+});
+
+export const PreviousMarkSchema = v.object({
+  path: v.string(),
+  resultHash: v.nullable(v.string()),
 });

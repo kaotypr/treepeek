@@ -13,6 +13,7 @@ import { registerSessionCalls } from "./handlers";
 import { validatePaths } from "./handlers/paths";
 import { createLogger, initCoreLog } from "./log";
 import { probeSqlite } from "./probe-sqlite";
+import { pruneOnStartup } from "./review/prune";
 import type { PortLike } from "./rpc";
 import { SessionRegistry } from "./sessions/registry";
 import type { Session, SessionServices } from "./sessions/session";
@@ -27,7 +28,11 @@ const sqlite = probeSqlite();
 const state = new CoreState();
 /** Opened by `core.init`, which carries the user data folder; `null` until then or on failure. */
 let store: ReviewStore | null = null;
-const services: SessionServices = { state, store: () => store };
+const services: SessionServices = {
+  state,
+  store: () => store,
+  sessions: () => sessions.all(),
+};
 
 function openStore(userDataDir: string): void {
   if (store) return;
@@ -35,8 +40,15 @@ function openStore(userDataDir: string): void {
     store = openReviewStore(userDataDir, { log: log.child("store") });
     log.info("local store opened", { engine: store.engine });
   } catch (error) {
-    // Scans still run from the reflog alone; start overrides fail until a restart.
+    // Scans still run from the reflog alone; start overrides and marks fail until a restart.
     log.error("could not open the local store", error);
+    return;
+  }
+  try {
+    const snapshots = pruneOnStartup(store);
+    if (snapshots > 0) log.info("pruned review snapshots", { snapshots });
+  } catch (error) {
+    log.warn("could not prune review snapshots", { error });
   }
 }
 

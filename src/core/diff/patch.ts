@@ -243,15 +243,35 @@ async function blobAgainstFile(
     signal: ctx.signal,
   });
   if (blob.tooLarge) return { sections: [], truncated: true };
+  return contentAgainstFile(ctx, blob.data, path);
+}
+
+/**
+ * Content Treepeek holds (a blob it read, a review snapshot) against the right side, with
+ * `diff --no-index` in the checkout: both sides go to private temporary files outside every
+ * repository, except a right side given as a path, which is a regular file in the checkout
+ * (repository-relative, already checked to lie inside it). `null` compares with nothing.
+ */
+export async function contentAgainstFile(
+  ctx: PatchContext,
+  content: Uint8Array,
+  right: string | Uint8Array | null,
+): Promise<FilePatch> {
   const folder = await mkdtemp(join(tmpdir(), "treepeek-diff-"));
   try {
     const left = join(folder, "left");
-    await writeFile(left, blob.data, { mode: 0o600 });
+    await writeFile(left, content, { mode: 0o600 });
+    let target = DEV_NULL;
+    if (typeof right === "string") target = right;
+    else if (right !== null) {
+      target = join(folder, "right");
+      await writeFile(target, right, { mode: 0o600 });
+    }
     return await run(ctx, {
       options: ["diff", "--no-index"],
-      operands: ["--", left, path],
+      operands: ["--", left, target],
       noIndex: true,
-      path,
+      path: typeof right === "string" ? right : left,
     });
   } finally {
     await rm(folder, { recursive: true, force: true });

@@ -34,6 +34,8 @@ export const COMMAND_ACCELERATORS: Readonly<Partial<Record<CommandId, string>>> 
   "checkout.next": "CmdOrCtrl+]",
   "file.previous": "Alt+Up",
   "file.next": "Alt+Down",
+  "file.toggleViewed": "V",
+  "file.markViewedAndNext": "CmdOrCtrl+Enter",
   "preview.split": "CmdOrCtrl+1",
   "preview.unified": "CmdOrCtrl+2",
   "preview.result": "CmdOrCtrl+3",
@@ -61,6 +63,11 @@ export interface MenuActions {
   openHelpLink: (link: HelpLink) => void;
   /** Asks `win` (the focused window, if any) to run one of its commands. */
   runCommand: (win: BrowserWindow | null, id: CommandId) => void;
+  /**
+   * Edit › Undo (⌘Z): the focused scan window's review undo when it has one to offer (the
+   * last "Mark all" or "Unmark all"), the focused field's own undo otherwise.
+   */
+  undo: (win: BrowserWindow | null) => void;
 }
 
 type FileMenuActions = Pick<
@@ -157,12 +164,23 @@ export function fileMenu(actions: FileMenuActions): MenuItemConstructorOptions {
   };
 }
 
-/** The standard editing roles, plus Find (⌘F), which filters the file list. */
-export function editMenu(actions: Pick<MenuActions, "runCommand">): MenuItemConstructorOptions {
+/**
+ * The standard editing roles, plus Find (⌘F), which filters the file list. Undo is
+ * Treepeek's own: it undoes "Mark all as reviewed" and "Unmark all" in a scan window, and
+ * typing in a field, which is all the standard role would do.
+ */
+export function editMenu(
+  actions: Pick<MenuActions, "runCommand" | "undo">,
+): MenuItemConstructorOptions {
   return {
     label: "Edit",
     submenu: [
-      { role: "undo" },
+      {
+        id: "edit.undo",
+        label: "Undo",
+        accelerator: "CmdOrCtrl+Z",
+        click: (_item, win) => actions.undo(focused(win)),
+      },
       { role: "redo" },
       separator,
       { role: "cut" },
@@ -242,7 +260,10 @@ export function viewMenu(
   };
 }
 
-/** Go: the previous and next checkout (timeline order) and file. */
+/**
+ * Go: the previous and next checkout (timeline order) and file, the selected file's Viewed
+ * mark (V), and Mark Viewed and Next (⌘↩).
+ */
 export function goMenu(actions: Pick<MenuActions, "runCommand">): MenuItemConstructorOptions {
   return {
     label: "Go",
@@ -252,16 +273,22 @@ export function goMenu(actions: Pick<MenuActions, "runCommand">): MenuItemConstr
       separator,
       commandItem(actions, "file.previous", "Previous File"),
       commandItem(actions, "file.next", "Next File"),
+      separator,
+      commandItem(actions, "file.toggleViewed", "Viewed", "checkbox"),
+      commandItem(actions, "file.markViewedAndNext", "Mark Viewed and Next"),
     ],
   };
 }
 
-/** Checkout: comparison settings, the start, "Open in…" and copying. */
+/** Checkout: review marks, comparison settings, the start, "Open in…" and copying. */
 export function checkoutMenu(actions: Pick<MenuActions, "runCommand">): MenuItemConstructorOptions {
   return {
     id: "checkout-menu",
     label: "Checkout",
     submenu: [
+      commandItem(actions, "checkout.markAllReviewed", "Mark All as Reviewed"),
+      commandItem(actions, "checkout.unmarkAll", "Unmark All"),
+      separator,
       commandItem(actions, "comparison.settings", "Comparison Settings…"),
       commandItem(actions, "checkout.setStart", "Set Start…"),
       separator,

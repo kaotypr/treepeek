@@ -60,14 +60,17 @@ afterEach(() => {
 });
 
 describe("migrations", () => {
-  it("version 1 creates worktree, start_override and meta", () => {
-    expect(MIGRATIONS.map((migration) => migration.version)).toEqual([1]);
-    expect(SCHEMA_VERSION).toBe(1);
-    const sql = MIGRATIONS[0]?.sqlite.join("\n") ?? "";
+  it("version 1 creates worktree, start_override and meta; version 2 mark and snapshot", () => {
+    expect(MIGRATIONS.map((migration) => migration.version)).toEqual([1, 2]);
+    expect(SCHEMA_VERSION).toBe(2);
+    const first = MIGRATIONS[0]?.sqlite.join("\n") ?? "";
     for (const table of ["meta", "worktree", "start_override"]) {
-      expect(sql).toContain(`CREATE TABLE ${table} `);
+      expect(first).toContain(`CREATE TABLE ${table} `);
     }
-    expect(pendingMigrations(0).map((migration) => migration.version)).toEqual([1]);
+    const second = MIGRATIONS[1]?.sqlite.join("\n") ?? "";
+    for (const table of ["mark", "snapshot"]) expect(second).toContain(`CREATE TABLE ${table} `);
+    expect(pendingMigrations(0).map((migration) => migration.version)).toEqual([1, 2]);
+    expect(pendingMigrations(1).map((migration) => migration.version)).toEqual([2]);
     expect(pendingMigrations(SCHEMA_VERSION)).toEqual([]);
   });
 });
@@ -88,7 +91,7 @@ describe.runIf(sqliteAvailable)("SqliteReviewStore", () => {
         .prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
         .all()
         .map((entry) => entry.name);
-      expect(tables).toEqual(["meta", "start_override", "worktree"]);
+      expect(tables).toEqual(["mark", "meta", "snapshot", "start_override", "worktree"]);
     } finally {
       db.close();
     }
@@ -101,6 +104,50 @@ describe.runIf(sqliteAvailable)("SqliteReviewStore", () => {
     const second = new SqliteReviewStore(file());
     expect(second.getWorktree(row("/repos/a").worktreeId)).toEqual(row("/repos/a"));
     second.close();
+  });
+
+  it("upgrades a version-1 database, keeping its worktrees and overrides", () => {
+    const sqlite = loadNodeSqlite();
+    if (!sqlite) throw new Error("node:sqlite vanished");
+    const db = new sqlite.DatabaseSync(file());
+    for (const statement of MIGRATIONS[0]?.sqlite ?? []) db.exec(statement);
+    db.exec("INSERT INTO meta (key, value) VALUES ('schema_version', '1')");
+    const kept = row("/repos/a");
+    db.prepare(
+      `INSERT INTO worktree (worktree_id, common_dir, checkout_path, start_commit,
+         start_observed_at, first_seen_at, last_seen_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      kept.worktreeId,
+      kept.commonDir,
+      kept.checkoutPath,
+      kept.startCommit,
+      kept.startObservedAt,
+      kept.firstSeenAt,
+      kept.lastSeenAt,
+    );
+    db.prepare(`INSERT INTO start_override (worktree_id, "commit", set_at) VALUES (?, ?, ?)`).run(
+      kept.worktreeId,
+      "b".repeat(40),
+      "2025-06-01T00:00:00Z",
+    );
+    db.close();
+
+    const store = new SqliteReviewStore(file());
+    try {
+      expect(store.getWorktree(kept.worktreeId)).toEqual(kept);
+      expect(store.getStartOverride(kept.worktreeId)?.commit).toBe("b".repeat(40));
+      store.setMarks(kept.worktreeId, [
+        {
+          path: "a.txt",
+          resultHash: "c".repeat(40),
+          viewedAt: "2025-07-01T00:00:00Z",
+          snapshotHash: null,
+        },
+      ]);
+      expect(store.getMarks(kept.worktreeId)).toHaveLength(1);
+    } finally {
+      store.close();
+    }
   });
 
   it("refuses a database written by a newer schema, and leaves it untouched", () => {
@@ -122,7 +169,7 @@ describe("JsonReviewStore", () => {
     store.upsertWorktree({ ...row("/repos/b"), commonDir: "/repos/svc.git" });
     store.close();
     expect(readdirSync(dir).sort()).toEqual(
-      [repositoryFileName(COMMON), repositoryFileName("/repos/svc.git")].sort(),
+      [repositoryFileName(COMMON), repositoryFileName("/repos/svc.git"), "snapshots"].sort(),
     );
     const saved = JSON.parse(readFileSync(join(dir, repositoryFileName(COMMON)), "utf8"));
     expect(saved).toMatchObject({ schemaVersion: SCHEMA_VERSION, commonDir: COMMON });
@@ -149,7 +196,7 @@ describe("JsonReviewStore", () => {
     store.upsertWorktree(row("/repos/a"));
     store.setStartOverride(row("/repos/a").worktreeId, "b".repeat(40), "2025-06-01T00:00:00Z");
     store.close();
-    expect(readdirSync(dir)).toEqual([repositoryFileName(COMMON)]);
+    expect(readdirSync(dir).sort()).toEqual([repositoryFileName(COMMON), "snapshots"].sort());
     const reopened = new JsonReviewStore(dir);
     expect(reopened.getStartOverride(row("/repos/a").worktreeId)?.commit).toBe("b".repeat(40));
     reopened.close();
@@ -193,6 +240,46 @@ describe("JsonReviewStore", () => {
     expect(readFileSync(join(dir, name), "utf8")).toBe(content);
   });
 
+  it("upgrades a version-1 document, keeping its worktrees and overrides", () => {
+    const name = repositoryFileName(COMMON);
+    const kept = row("/repos/a");
+    writeFileSync(
+      join(dir, name),
+      JSON.stringify({
+        schemaVersion: 1,
+        commonDir: COMMON,
+        worktrees: {
+          [kept.worktreeId]: {
+            checkoutPath: kept.checkoutPath,
+            startCommit: kept.startCommit,
+            startObservedAt: kept.startObservedAt,
+            firstSeenAt: kept.firstSeenAt,
+            lastSeenAt: kept.lastSeenAt,
+          },
+        },
+        startOverrides: {
+          [kept.worktreeId]: { commit: "b".repeat(40), setAt: "2025-06-01T00:00:00Z" },
+        },
+      }),
+    );
+    const store = new JsonReviewStore(dir);
+    expect(store.getWorktree(kept.worktreeId)).toEqual(kept);
+    expect(store.getStartOverride(kept.worktreeId)?.commit).toBe("b".repeat(40));
+    store.setMarks(kept.worktreeId, [
+      {
+        path: "a.txt",
+        resultHash: "c".repeat(40),
+        viewedAt: "2025-07-01T00:00:00Z",
+        snapshotHash: null,
+      },
+    ]);
+    store.close();
+    const saved = JSON.parse(readFileSync(join(dir, name), "utf8"));
+    expect(saved.schemaVersion).toBe(2);
+    expect(Object.keys(saved.worktrees)).toEqual([kept.worktreeId]);
+    expect(saved.marks[kept.worktreeId]["a.txt"].resultHash).toBe("c".repeat(40));
+  });
+
   it("migrates a version-0 document", () => {
     const name = repositoryFileName(COMMON);
     writeFileSync(join(dir, name), JSON.stringify({ schemaVersion: 0, commonDir: COMMON }));
@@ -201,7 +288,7 @@ describe("JsonReviewStore", () => {
     store.upsertWorktree(row("/repos/a"));
     store.close();
     const saved = JSON.parse(readFileSync(join(dir, name), "utf8"));
-    expect(saved.schemaVersion).toBe(1);
+    expect(saved.schemaVersion).toBe(SCHEMA_VERSION);
   });
 });
 

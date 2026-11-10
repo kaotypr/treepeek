@@ -18,6 +18,11 @@ export interface ScanResult {
   timeline: TimelineEntry[];
   repositories: Repository[];
   problems: ScanProblem[];
+  /**
+   * The real paths of every checkout Git lists, inside the scan root or not, by common dir
+   * (pruning forgets identities Git no longer lists).
+   */
+  listedCheckouts: ReadonlyMap<string, ReadonlySet<string>>;
   /** From the start of the walk to the end of the timeline. */
   durationMs: number;
 }
@@ -41,7 +46,10 @@ export async function resolveScan(
   startedAt: number,
   onCheckout: (checkout: ScannedCheckout) => void,
 ): Promise<ScanResult> {
-  const { valid, problems, worktreeLists } = await validateCandidates(walked.candidates, ctx);
+  const { valid, problems, worktreeLists, listed } = await validateCandidates(
+    walked.candidates,
+    ctx,
+  );
 
   const resolved = await Promise.all(
     valid.map(async (candidate) => {
@@ -95,6 +103,7 @@ export async function resolveScan(
       worktreeLists,
     ),
     problems: problems.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)),
+    listedCheckouts: listed,
     durationMs: Date.now() - startedAt,
   };
 }

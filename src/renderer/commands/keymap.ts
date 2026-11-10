@@ -17,6 +17,11 @@ export interface KeyBinding {
   meta?: boolean;
   shift?: boolean;
   alt?: boolean;
+  /**
+   * The shortcut belongs to a text field while one has focus, even with ⌘ (⌘Z undoes
+   * typing there, and the review undo everywhere else).
+   */
+  notInTextField?: boolean;
 }
 
 export const KEYMAP: readonly KeyBinding[] = Object.freeze([
@@ -27,6 +32,9 @@ export const KEYMAP: readonly KeyBinding[] = Object.freeze([
   { command: "checkout.next", key: "]", meta: true },
   { command: "file.previous", key: "ArrowUp", alt: true },
   { command: "file.next", key: "ArrowDown", alt: true },
+  { command: "file.toggleViewed", key: "v" },
+  { command: "file.markViewedAndNext", key: "Enter", meta: true },
+  { command: "review.undo", key: "z", meta: true, notInTextField: true },
   { command: "preview.split", key: "1", meta: true },
   { command: "preview.unified", key: "2", meta: true },
   { command: "preview.result", key: "3", meta: true },
@@ -58,7 +66,7 @@ export function commandForKey(event: KeyLike, inTextField: boolean): CommandId |
     if (event.metaKey !== !!binding.meta) continue;
     if (event.shiftKey !== !!binding.shift) continue;
     if (event.altKey !== !!binding.alt) continue;
-    if (inTextField && !binding.meta) return null;
+    if (inTextField && (!binding.meta || binding.notInTextField)) return null;
     return binding.command;
   }
   return null;
@@ -69,11 +77,18 @@ export function shortcutLabel(command: CommandId): string | null {
   const binding = KEYMAP.find((item) => item.command === command);
   if (!binding) return null;
   const key =
-    binding.key === "ArrowUp" ? "↑" : binding.key === "ArrowDown" ? "↓" : binding.key.toUpperCase();
+    binding.key === "ArrowUp"
+      ? "↑"
+      : binding.key === "ArrowDown"
+        ? "↓"
+        : binding.key === "Enter"
+          ? "↩"
+          : binding.key.toUpperCase();
   return `${binding.alt ? "⌥" : ""}${binding.shift ? "⇧" : ""}${binding.meta ? "⌘" : ""}${key}`;
 }
 
-function isTextField(target: EventTarget | null): boolean {
+/** Whether keys typed at `target` are text: a text field, or a select's type-to-find. */
+export function isTextField(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
   if (target.isContentEditable) return true;
   if (target instanceof HTMLTextAreaElement) return true;
@@ -86,7 +101,11 @@ function isTextField(target: EventTarget | null): boolean {
 export function installKeymap(target: Window = window): () => void {
   const onKeyDown = (event: KeyboardEvent) => {
     if (event.defaultPrevented || event.isComposing) return;
-    const command = commandForKey(event, isTextField(event.target));
+    // A plain key on a select is its type-to-find; ⌘ and ⌥ shortcuts still run there.
+    const typing =
+      isTextField(event.target) ||
+      (event.target instanceof HTMLSelectElement && !event.metaKey && !event.altKey);
+    const command = commandForKey(event, typing);
     if (command !== null && runCommand(command)) event.preventDefault();
   };
   target.addEventListener("keydown", onKeyDown);

@@ -9,7 +9,7 @@ import { PierreDiffView } from "./pierre/PierreDiffView";
 import type { DiffViewProps } from "./types";
 
 export function DiffView(props: DiffViewProps) {
-  const { diff, mode } = props;
+  const { diff, mode, onRequestNextFile } = props;
   const blocked = blockingNotice(diff, mode);
   const notes = limitNotes(diff, mode);
   return (
@@ -37,6 +37,19 @@ export function DiffView(props: DiffViewProps) {
           </p>
         )}
       </div>
+      {onRequestNextFile && (
+        <div className="flex shrink-0 justify-end border-border border-t px-3 py-1.5">
+          <button
+            type="button"
+            onClick={onRequestNextFile}
+            aria-keyshortcuts="Meta+Enter"
+            className="rounded-md border border-input bg-card px-2 py-0.5 text-xs outline-none hover:bg-hover focus-visible:ring-2 focus-visible:ring-ring"
+            data-testid="diff-view-next-file"
+          >
+            Mark viewed and open next (⌘↩)
+          </button>
+        </div>
+      )}
     </div>
   );
 }

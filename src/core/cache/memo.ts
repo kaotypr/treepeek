@@ -3,6 +3,8 @@ import { Lru } from "./lru";
 
 interface Pending<V> {
   state: "pending";
+  /** How urgent the caller that started it was (`MemoGetOptions.rank`). */
+  rank: number;
   promise: Promise<V>;
   /** Aborts the computation once every caller waiting for it has given up. */
   controller: AbortController;
@@ -17,11 +19,21 @@ interface Done<V> {
 
 type Entry<V> = Pending<V> | Done<V>;
 
+export interface MemoGetOptions {
+  /**
+   * How urgent this caller is; default 0. A caller does not wait for a computation a less
+   * urgent caller started (background work in the git queue's low lane).
+   */
+  rank?: number;
+}
+
 /**
  * Cached results of async computations (git queries), shared by every caller asking for
  * the same key, so two windows on the same repository run each query once.
  *
- * - A caller asking while the computation runs waits for the same one.
+ * - A caller asking while the computation runs waits for the same one, unless it is more
+ *   urgent (`rank`) than the caller that started it: then it starts its own, which replaces
+ *   the entry, so work a person waits for never waits behind background work's queue lane.
  * - Each caller's own signal only detaches that caller (it rejects with `cancelled`); the
  *   computation is aborted, and forgotten, once no caller is waiting for it.
  * - A failed computation is not cached; the next caller tries again.
@@ -43,14 +55,22 @@ export class Memo<K, V> {
   }
 
   /**
-   * The result for `key`: the stored one, the one being computed, or a new computation
-   * started with `compute`, whose signal aborts when no caller waits any more.
+   * The result for `key`: the stored one, the one being computed (by a caller at least as
+   * urgent), or a new computation started with `compute`, whose signal aborts when no
+   * caller waits any more.
    */
-  get(key: K, compute: (signal: AbortSignal) => Promise<V>, signal: AbortSignal): Promise<V> {
+  get(
+    key: K,
+    compute: (signal: AbortSignal) => Promise<V>,
+    signal: AbortSignal,
+    options: MemoGetOptions = {},
+  ): Promise<V> {
     if (signal.aborted) return Promise.reject(cancelledError());
     const existing = this.#entries.get(key);
     if (existing?.state === "done") return Promise.resolve(existing.value);
-    return this.#wait(key, existing ?? this.#start(key, compute), signal);
+    const rank = options.rank ?? 0;
+    const entry = existing && existing.rank >= rank ? existing : this.#start(key, compute, rank);
+    return this.#wait(key, entry, signal);
   }
 
   /** The stored result for `key`, without computing anything. */
@@ -80,7 +100,7 @@ export class Memo<K, V> {
     return [...this.#entries.keys()];
   }
 
-  #start(key: K, compute: (signal: AbortSignal) => Promise<V>): Pending<V> {
+  #start(key: K, compute: (signal: AbortSignal) => Promise<V>, rank: number): Pending<V> {
     const controller = new AbortController();
     let promise: Promise<V>;
     try {
@@ -88,7 +108,14 @@ export class Memo<K, V> {
     } catch (error) {
       promise = Promise.reject(error);
     }
-    const entry: Pending<V> = { state: "pending", promise, controller, waiters: 0, settled: false };
+    const entry: Pending<V> = {
+      state: "pending",
+      rank,
+      promise,
+      controller,
+      waiters: 0,
+      settled: false,
+    };
     this.#entries.set(key, entry);
     promise.then(
       (value) => {

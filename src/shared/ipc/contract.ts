@@ -1,6 +1,6 @@
 import * as v from "valibot";
 import { CHECKABLE_COMMAND_IDS, COMMAND_IDS } from "../commands";
-import { LISTABLE_COMPARISON_KINDS } from "../domain/compare";
+import { COMPARISON_KINDS, LISTABLE_COMPARISON_KINDS } from "../domain/compare";
 import { GIT_PROBLEMS } from "../domain/git";
 import {
   AppearanceSchema,
@@ -17,8 +17,10 @@ import {
   FileDiffSchema,
   FolderNodeSchema,
   PathSchema,
+  PreviousMarkSchema,
   RefSchema,
   RepositorySchema,
+  ReviewStatusSchema,
   ScanProblemSchema,
   TimelineEntrySchema,
 } from "./domain-schemas";
@@ -27,11 +29,20 @@ import {
  * Bumped whenever a channel's shape changes. Main, the core service and every window come
  * from one build, so a mismatch means something is badly wrong; it is still checked.
  */
-export const CONTRACT_VERSION = 7;
+export const CONTRACT_VERSION = 8;
 
 const Empty = v.strictObject({});
 
 const RequestId = v.pipe(v.string(), v.minLength(1), v.maxLength(128));
+
+/** Checkouts one `review.status` call may ask about. */
+export const MAX_STATUS_CHECKOUTS = 1_000;
+
+/** Paths one `review.mark` call may carry (an undo replays a whole worktree's marks). */
+export const MAX_MARK_PATHS = 50_000;
+
+/** A `resultHash` sent back by the renderer (an undo): bounded, checked by the core service. */
+const ResultHashSchema = v.pipe(v.string(), v.minLength(1), v.maxLength(200));
 
 export const SqliteProbeSchema = v.object({
   available: v.boolean(),
@@ -396,6 +407,12 @@ export const coreCalls = {
    * that comparison's list, never from the request. `path` is repository-relative (as
    * listed); `category` is required for `working` and refused for every other kind.
    *
+   * `sinceViewed` is one file's comparison and takes neither `ref` nor `startOverride`:
+   * the version of a review-scope file its mark says was viewed (a snapshot, or the blob
+   * from Git) against the file now. It fails `invalidRequest` with `detail.notInComparison`
+   * for a file without a mark, and `refNotFound` with `detail.unavailable` set to
+   * `noEarlierVersion` when the viewed version is kept nowhere any more.
+   *
    * Fails `notInScan` for a checkout outside the scan, or a path that is absolute, has a
    * `..` segment or resolves outside the checkout; `invalidRequest` with
    * `detail.notInComparison` for a path the comparison's list does not hold; and like
@@ -408,7 +425,7 @@ export const coreCalls = {
       requestId: RequestId,
       checkoutPath: PathSchema,
       comparison: v.strictObject({
-        kind: v.picklist(LISTABLE_COMPARISON_KINDS),
+        kind: v.picklist(COMPARISON_KINDS),
         ref: v.exactOptional(RefSchema),
         startOverride: v.exactOptional(RefSchema),
       }),
@@ -416,6 +433,65 @@ export const coreCalls = {
       category: v.exactOptional(FileCategorySchema),
     }),
     response: FileDiffSchema,
+  }),
+  /**
+   * Review progress of scanned checkouts, in the order asked: every file of each one's
+   * review scope (`review` comparison) with its state, and the counts. `notInScan` when
+   * any path is not a checkout of this window's scan.
+   */
+  "review.status": defineCall({
+    name: "review.status",
+    request: v.strictObject({
+      checkoutPaths: v.pipe(v.array(PathSchema), v.minLength(1), v.maxLength(MAX_STATUS_CHECKOUTS)),
+    }),
+    response: v.array(ReviewStatusSchema),
+  }),
+  /**
+   * Marks files Viewed (their current version) or not, and answers the checkout's status.
+   * Marking a path outside the review scope fails `invalidRequest`. `resultHashes`, one per
+   * path and only with `viewed`, restores those exact versions instead (an undo); the
+   * paths then need only be repository-relative. Every window showing the checkout hears
+   * `review.changed`.
+   */
+  "review.mark": defineCall({
+    name: "review.mark",
+    request: v.strictObject({
+      checkoutPath: PathSchema,
+      paths: v.pipe(v.array(PathSchema), v.minLength(1), v.maxLength(MAX_MARK_PATHS)),
+      viewed: v.boolean(),
+      resultHashes: v.exactOptional(
+        v.pipe(v.array(ResultHashSchema), v.minLength(1), v.maxLength(MAX_MARK_PATHS)),
+      ),
+    }),
+    response: ReviewStatusSchema,
+  }),
+  /**
+   * "Mark all as reviewed" (`viewed: true`): every file of the review scope, at its current
+   * version. "Unmark all" (`viewed: false`): every mark of the worktree. Answers the status
+   * and each changed path's mark before the action, so the window can undo it.
+   */
+  "review.markAll": defineCall({
+    name: "review.markAll",
+    request: v.strictObject({ checkoutPath: PathSchema, viewed: v.boolean() }),
+    response: v.object({ status: ReviewStatusSchema, previous: v.array(PreviousMarkSchema) }),
+  }),
+  /** What the snapshot store holds (Settings › Advanced). */
+  "review.storeUsage": defineCall({
+    name: "review.storeUsage",
+    request: Empty,
+    response: v.object({
+      count: v.pipe(v.number(), v.integer(), v.minValue(0)),
+      bytes: v.pipe(v.number(), v.integer(), v.minValue(0)),
+    }),
+  }),
+  /**
+   * "Clear review data…": deletes every mark and snapshot (start overrides stay). Every
+   * window hears `review.changed` for each checkout it shows.
+   */
+  "review.clearAll": defineCall({
+    name: "review.clearAll",
+    request: Empty,
+    response: v.object({}),
   }),
 } as const satisfies CallMap;
 
@@ -437,6 +513,15 @@ export const coreEvents = {
       durationMs: v.number(),
       problems: v.array(ScanProblemSchema),
     }),
+  }),
+  /**
+   * A checkout's review status, new or changed: computed after each scan for every checkout
+   * of it (in the background), and sent to every window showing a checkout whose marks
+   * changed (in any window).
+   */
+  "review.changed": defineEvent({
+    name: "review.changed",
+    payload: ReviewStatusSchema,
   }),
 } as const satisfies EventMap;
 

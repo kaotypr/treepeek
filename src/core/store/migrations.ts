@@ -47,6 +47,30 @@ export const MIGRATIONS: readonly Migration[] = Object.freeze([
       document.startOverrides = {};
     },
   },
+  {
+    version: 2,
+    summary: "review marks and the snapshots they reference",
+    sqlite: [
+      `CREATE TABLE mark (
+        worktree_id TEXT NOT NULL,
+        path TEXT NOT NULL,
+        result_hash TEXT NOT NULL,
+        viewed_at TEXT NOT NULL,
+        snapshot_hash TEXT,
+        PRIMARY KEY (worktree_id, path)
+      ) STRICT, WITHOUT ROWID`,
+      "CREATE INDEX mark_by_snapshot ON mark (snapshot_hash) WHERE snapshot_hash IS NOT NULL",
+      `CREATE TABLE snapshot (
+        hash TEXT PRIMARY KEY,
+        size INTEGER NOT NULL,
+        created_at TEXT NOT NULL
+      ) STRICT, WITHOUT ROWID`,
+    ],
+    // The JSON engine's `snapshot` table is the snapshot folder itself (`snapshots.ts`).
+    json: (document) => {
+      document.marks = {};
+    },
+  },
 ]);
 
 /** The version a store reaches after every migration. */

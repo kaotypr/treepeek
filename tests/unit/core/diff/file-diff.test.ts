@@ -580,7 +580,8 @@ describe("diff.file refuses what it cannot trust", () => {
       {
         requestId: "x",
         checkoutPath: feature.path,
-        comparison: { kind: "sinceViewed" },
+        // `sinceViewed` is one file's comparison: it takes no ref.
+        comparison: { kind: "sinceViewed", ref: "main" },
         path: "edit.txt",
       },
       {

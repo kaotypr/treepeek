@@ -40,6 +40,7 @@ function actions(overrides: Partial<Parameters<typeof menuTemplate>[0]> = {}) {
     openAbout: () => calls.push("about"),
     openHelpLink: (link) => calls.push(`help:${link}`),
     runCommand: (win, id) => ran.push([win, id]),
+    undo: (win) => ran.push([win, "undo"]),
     ...overrides,
   };
   return { value, ran, calls };
@@ -139,7 +140,7 @@ describe("the menu bar", () => {
     ]);
   });
 
-  it("shows every shortcut from the design's table (V and ⌘↩ arrive with review marks)", () => {
+  it("shows every shortcut from the design's table, and ⌘Z for Undo", () => {
     const accelerators = items.map((item) => item.accelerator).filter(Boolean);
     expect(new Set(accelerators)).toEqual(
       new Set([
@@ -152,6 +153,9 @@ describe("the menu bar", () => {
         "CmdOrCtrl+]",
         "Alt+Up",
         "Alt+Down",
+        "V",
+        "CmdOrCtrl+Enter",
+        "CmdOrCtrl+Z",
         "CmdOrCtrl+1",
         "CmdOrCtrl+2",
         "CmdOrCtrl+3",
@@ -172,12 +176,41 @@ describe("the menu bar", () => {
       expect(items.find((item) => item.id === id)?.accelerator, id).toBe(accelerator);
     }
     for (const id of COMMAND_IDS) {
-      if (id === "appearance.cycle" || id === "app.settings") continue;
+      // ⌘, is the app menu's Settings…; ⌘Z is Edit › Undo, which runs `review.undo` when
+      // the window offers it and the field's own undo otherwise.
+      if (id === "appearance.cycle" || id === "app.settings" || id === "review.undo") continue;
       expect(
         items.filter((item) => item.id === id),
         id,
       ).toHaveLength(1);
     }
+  });
+
+  it("puts the review commands in Go and Checkout, and Undo in Edit", () => {
+    const go = submenu(template.find((item) => item.label === "Go"));
+    expect(go.find((item) => item.id === "file.toggleViewed")).toMatchObject({
+      label: "Viewed",
+      type: "checkbox",
+      accelerator: "V",
+    });
+    expect(go.find((item) => item.id === "file.markViewedAndNext")).toMatchObject({
+      label: "Mark Viewed and Next",
+      accelerator: "CmdOrCtrl+Enter",
+    });
+    const checkout = submenu(template.find((item) => item.label === "Checkout"));
+    expect(checkout.slice(0, 2).map((item) => [item.id, item.label])).toEqual([
+      ["checkout.markAllReviewed", "Mark All as Reviewed"],
+      ["checkout.unmarkAll", "Unmark All"],
+    ]);
+    const edit = submenu(template.find((item) => item.label === "Edit"));
+    expect(edit.some((item) => item.role === "undo")).toBe(false);
+    const { value, ran } = actions();
+    const win = new BrowserWindow();
+    click(
+      flatten(menuTemplate(value, true)).find((item) => item.id === "edit.undo"),
+      win,
+    );
+    expect(ran).toEqual([[win, "undo"]]);
   });
 
   it("sends a command item to the focused window, as command.run", () => {

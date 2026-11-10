@@ -1,7 +1,10 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { runCommand } from "../../commands/registry";
 import { isIpcFailure } from "../../data/client";
-import { useFileDiff } from "../../data/hooks/useFileDiff";
+import { useFileDiff, useSinceViewedDiff } from "../../data/hooks/useFileDiff";
+import { useCachedReviewStatus } from "../../data/hooks/useReviewStatus";
 import { useSelectedComparison, useSelectedFile } from "../../data/hooks/useSelection";
+import { reviewFileOf } from "../../data/review-model";
 import { DiffView } from "../../diff-view/DiffView";
 import { DEFAULT_CONTEXT_LINES, type DiffAnchor, type DiffViewHandle } from "../../diff-view/types";
 import { useResolvedTheme } from "../../lib/use-resolved-theme";
@@ -14,13 +17,34 @@ const LOADING_DELAY_MS = 150;
 /**
  * The selected file's diff in the chosen mode. A mode change keeps the same lines in view;
  * selecting another file cancels the diff still being fetched for the previous one.
+ *
+ * "Since you viewed" swaps in the file's changes since it was marked Viewed. Below the diff,
+ * "Mark viewed and open next" (⌘↩) moves on through the review.
  */
 export function Preview() {
   const { checkoutPath, request, query } = useSelectedComparison();
   const file = useSelectedFile();
   const mode = useUi((state) => state.previewMode);
   const theme = useResolvedTheme();
-  const diff = useFileDiff(checkoutPath, request, query.data, file);
+  const review = useCachedReviewStatus(checkoutPath);
+  const reviewed = file ? reviewFileOf(review, file.path) : undefined;
+  const sinceViewedOn = useUi((state) => state.sinceViewed);
+  const sinceViewed =
+    sinceViewedOn &&
+    reviewed?.state === "changedSinceViewed" &&
+    reviewed.earlierAvailable !== false;
+  const comparisonDiff = useFileDiff(
+    checkoutPath,
+    request,
+    query.data,
+    sinceViewed ? undefined : file,
+  );
+  const sinceDiff = useSinceViewedDiff(
+    checkoutPath,
+    sinceViewed ? file : undefined,
+    sinceViewed ? reviewed?.viewedHash : undefined,
+  );
+  const diff = sinceViewed ? sinceDiff : comparisonDiff;
   const viewRef = useRef<DiffViewHandle>(null);
   const pendingAnchor = useRef<DiffAnchor | null>(null);
 
@@ -46,7 +70,15 @@ export function Preview() {
 
   return (
     <section aria-label="Preview" className="flex h-full min-h-0 flex-col" data-testid="preview">
-      <PreviewHeader file={file} stats={diff.data?.stats} />
+      <PreviewHeader file={file} stats={diff.data?.stats} reviewed={reviewed} />
+      {sinceViewed && (
+        <p
+          className="shrink-0 border-border border-b bg-review-changed-surface px-3 py-1 text-review-changed text-xs"
+          data-testid="since-viewed-note"
+        >
+          Since you viewed: only what changed after you marked this file Viewed.
+        </p>
+      )}
       <div className="min-h-0 flex-1" data-testid="preview-body">
         {file === undefined ? (
           <Message>
@@ -61,6 +93,7 @@ export function Preview() {
             mode={mode}
             theme={theme}
             contextLines={DEFAULT_CONTEXT_LINES}
+            {...(reviewed ? { onRequestNextFile: () => runCommand("file.markViewedAndNext") } : {})}
           />
         ) : diff.isError ? (
           <Message tone="error">

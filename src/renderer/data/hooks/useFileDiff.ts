@@ -46,3 +46,47 @@ export function useFileDiff(
     retry: false,
   });
 }
+
+/**
+ * The selected file's changes since it was marked Viewed (`diff.file` with `sinceViewed`).
+ * Keyed by the version viewed and the version now, so a new mark or a new edit asks again.
+ */
+export function useSinceViewedDiff(
+  checkoutPath: string | null,
+  file: FileChange | undefined,
+  viewedHash: string | undefined,
+) {
+  const ready = checkoutPath !== null && file !== undefined && viewedHash !== undefined;
+  return useQuery({
+    queryKey: ready
+      ? keys.fileDiff(
+          checkoutPath,
+          `sinceViewed|${viewedHash}`,
+          { path: file.path },
+          file.resultHash,
+        )
+      : ["fileDiff", null, "sinceViewed"],
+    queryFn: ready
+      ? async ({ signal }) => {
+          const requestId = newRequestId("since");
+          const cancel = () => void core().request.cancel({ requestId });
+          signal.addEventListener("abort", cancel, { once: true });
+          try {
+            return unwrap(
+              await core().diff.file({
+                requestId,
+                checkoutPath,
+                comparison: { kind: "sinceViewed" },
+                path: file.path,
+              }),
+            );
+          } finally {
+            signal.removeEventListener("abort", cancel);
+          }
+        }
+      : skipToken,
+    staleTime: Number.POSITIVE_INFINITY,
+    gcTime: 5 * 60_000,
+    retry: false,
+  });
+}

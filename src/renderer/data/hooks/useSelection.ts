@@ -1,8 +1,11 @@
 import { useMemo } from "react";
 import type { FileChange } from "../../../shared/domain/compare";
-import { useUi } from "../../state/ui-store";
+import type { ReviewStatus } from "../../../shared/domain/review";
+import { type FileSelection, useUi } from "../../state/ui-store";
 import type { ComparisonRequest } from "../keys";
+import { reviewStateOf } from "../review-model";
 import { useComparison } from "./useComparison";
+import { useCachedReviewStatus } from "./useReviewStatus";
 import { useCheckout } from "./useScan";
 
 /** The comparison the settings describe, or `null` while `base` waits for its ref. */
@@ -57,12 +60,33 @@ export function filterFiles(files: readonly FileChange[], filter: string): FileC
   );
 }
 
+/**
+ * With "Hide viewed", the files not marked Viewed at their current version; the selected
+ * file stays, so marking it does not pull it out from under the person.
+ */
+export function hideViewedFiles(
+  files: readonly FileChange[],
+  status: ReviewStatus | undefined,
+  selection: FileSelection | null,
+): FileChange[] {
+  if (!status) return [...files];
+  return files.filter(
+    (file) => reviewStateOf(status, file.path) !== "viewed" || matchesSelection(file, selection),
+  );
+}
+
 /** The files the list shows, in its order. */
 export function useVisibleFiles(): FileChange[] {
-  const { query } = useSelectedComparison();
+  const { query, checkoutPath } = useSelectedComparison();
   const filter = useUi((state) => state.fileFilter);
+  const hideViewed = useUi((state) => state.hideViewed);
+  const selection = useUi((state) => state.selectedFile);
+  const status = useCachedReviewStatus(hideViewed ? checkoutPath : null);
   const files = query.data?.files;
-  return useMemo(() => filterFiles(files ?? [], filter), [files, filter]);
+  return useMemo(() => {
+    const filtered = filterFiles(files ?? [], filter);
+    return hideViewed ? hideViewedFiles(filtered, status, selection) : filtered;
+  }, [files, filter, hideViewed, status, selection]);
 }
 
 /** The selected file's entry in the current comparison, if it is still listed. */

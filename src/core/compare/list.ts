@@ -12,6 +12,7 @@ import { GitParseError } from "../git/errors";
 import type { HashObjectBatch } from "../git/hash-object";
 import { parseNulList } from "../git/parse/ls-files";
 import { parseRawDiff, type RawEntry, type RawStatus } from "../git/parse/raw-diff";
+import type { GitPriority } from "../git/queue";
 import { runGit } from "../git/run";
 import { commitCount, isAncestor, RAW_DIFF_FLAGS, rawDiff } from "../scan/queries";
 import type { ScannedCheckout } from "../scan/resolve-checkout";
@@ -37,6 +38,20 @@ export interface ComparisonContext {
   /** The checkout's `hash-object` process, for working-tree result hashes. */
   readonly hashObject: HashObjectBatch;
   readonly signal: AbortSignal;
+  /**
+   * Queue lane for the git work a list not cached yet needs. Default `normal`; background
+   * review status asks for `low`.
+   */
+  readonly priority?: GitPriority;
+}
+
+/** `runGit` options for a comparison's git calls: its signal, time limit and lane. */
+function gitOptions(ctx: { signal: AbortSignal; priority?: GitPriority | undefined }) {
+  return {
+    signal: ctx.signal,
+    timeoutMs: GIT_TIMEOUT_MS,
+    ...(ctx.priority ? { priority: ctx.priority } : {}),
+  };
 }
 
 const STATUS: Readonly<Record<RawStatus, FileStatus>> = Object.freeze({
@@ -76,7 +91,7 @@ export async function listComparison(
   const files = await filesOf(sides, ctx);
   const result: ComparisonResult = { comparison: sides.comparison, files: [...files] };
   const head = ctx.checkout.checkout.head;
-  const query = { signal: ctx.signal, timeoutMs: GIT_TIMEOUT_MS };
+  const query = gitOptions(ctx);
   if (sides.counted) {
     result.commits = await commitCount(ctx.repo, sides.counted.left, sides.counted.right, query);
   }
@@ -94,7 +109,7 @@ async function filesOf(
   ctx: ComparisonContext,
 ): Promise<readonly FileChange[]> {
   const { left, right, kind } = sides.comparison;
-  const query = { signal: ctx.signal, timeoutMs: GIT_TIMEOUT_MS };
+  const query = gitOptions(ctx);
   if (left.kind === "commit" && right.kind === "commit") {
     const raw = await rawDiff(ctx.repo, left.oid, right.oid, query);
     return finish(
@@ -104,17 +119,21 @@ async function filesOf(
   }
   const memo = ctx.repo.cache.comparisons(ctx.checkout.checkout.path);
   const leftKey = left.kind === "commit" ? left.oid : "empty";
+  // A list someone is waiting for does not wait for one background status started.
+  const urgency = { rank: ctx.priority === "low" ? -1 : 0 };
   if (kind === "working") {
     return memo.get(
       `working:${leftKey}`,
       (signal) => listWorking(left, { ...ctx, signal }),
       ctx.signal,
+      urgency,
     );
   }
   return memo.get(
     `review:${leftKey}`,
     (signal) => listReview(left, { ...ctx, signal }),
     ctx.signal,
+    urgency,
   );
 }
 
@@ -130,8 +149,8 @@ async function filesOf(
  */
 async function listReview(left: ContentSide, ctx: ComparisonContext): Promise<FileChange[]> {
   const cwd = ctx.checkout.checkout.path;
-  const options = { signal: ctx.signal, timeoutMs: GIT_TIMEOUT_MS };
-  const from = left.kind === "commit" ? left.oid : await emptyTree(cwd, ctx.signal);
+  const options = gitOptions(ctx);
+  const from = left.kind === "commit" ? left.oid : await emptyTree(cwd, ctx.signal, ctx.priority);
   const [diffOut, untrackedOut] = await Promise.all([
     runGit(cwd, ["diff", ...RAW_DIFF_FLAGS, from, "--"], options),
     runGit(cwd, UNTRACKED_ARGS, options),
@@ -159,7 +178,7 @@ async function listReview(left: ContentSide, ctx: ComparisonContext): Promise<Fi
 /** `working`: staged (HEAD → index), unstaged (index → disk) and untracked (empty → disk). */
 async function listWorking(head: ContentSide, ctx: ComparisonContext): Promise<FileChange[]> {
   const cwd = ctx.checkout.checkout.path;
-  const options = { signal: ctx.signal, timeoutMs: GIT_TIMEOUT_MS };
+  const options = gitOptions(ctx);
   const [stagedOut, unstagedOut, untrackedOut] = await Promise.all([
     runGit(cwd, ["diff", ...RAW_DIFF_FLAGS, "--cached", "--"], options),
     runGit(cwd, ["diff", ...RAW_DIFF_FLAGS, "--"], options),
@@ -182,6 +201,7 @@ function finish(listed: readonly ListedFile[], ctx: ComparisonContext): Promise<
     checkoutPath: ctx.checkout.checkout.path,
     hashObject: ctx.hashObject,
     signal: ctx.signal,
+    ...(ctx.priority ? { priority: ctx.priority } : {}),
   });
 }
 
@@ -245,8 +265,16 @@ function untrackedFile(path: string, category?: FileCategory): ListedFile {
  * The empty tree's id in this repository's object format, for a checkout without commits:
  * `hash-object -t tree --stdin` with no input, which writes nothing.
  */
-export async function emptyTree(cwd: string, signal: AbortSignal): Promise<string> {
-  const output = await runGit(cwd, ["hash-object", "-t", "tree", "--stdin"], { signal, stdin: "" });
+export async function emptyTree(
+  cwd: string,
+  signal: AbortSignal,
+  priority?: GitPriority,
+): Promise<string> {
+  const output = await runGit(cwd, ["hash-object", "-t", "tree", "--stdin"], {
+    signal,
+    stdin: "",
+    ...(priority ? { priority } : {}),
+  });
   const oid = output.stdout.toString("utf8").trim();
   if (!/^[0-9a-f]{40,64}$/.test(oid))
     throw new GitParseError("hash-object -t tree", `got "${oid}"`);

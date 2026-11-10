@@ -1,8 +1,7 @@
 /**
  * The core service's local store (review-marks design, "Local store"): what Treepeek keeps
  * about worktrees between runs, outside every repository. Callers use this interface only,
- * so the engine (SQLite or JSON files) can change without touching them. Review marks and
- * snapshots extend it later.
+ * so the engine (SQLite or JSON files) can change without touching them.
  *
  * Every method is synchronous: both engines answer from the same process (SQLite through
  * `node:sqlite`, JSON from memory), and a synchronous store cannot interleave two
@@ -39,6 +38,34 @@ export interface StartOverride {
   setAt: string;
 }
 
+/**
+ * One review mark (the `mark` table): the version of a file a reviewer marked Viewed. One
+ * current mark per `(worktreeId, path)`.
+ */
+export interface Mark {
+  worktreeId: string;
+  /** Repository-relative, `/`-separated. */
+  path: string;
+  /** The `resultHash` of the version marked. */
+  resultHash: string;
+  /** ISO 8601 UTC, to the second. */
+  viewedAt: string;
+  /**
+   * The snapshot holding the content that was viewed (its `resultHash`, which names the
+   * snapshot), or `null` when none was kept (too large, binary, a deletion, or pruned).
+   */
+  snapshotHash: string | null;
+}
+
+/** A mark as a caller sets it; the worktree is the call's. */
+export type MarkInput = Omit<Mark, "worktreeId">;
+
+/** What the snapshot store holds. */
+export interface SnapshotUsage {
+  count: number;
+  bytes: number;
+}
+
 export interface ReviewStore {
   readonly engine: StoreEngine;
   /**
@@ -56,6 +83,53 @@ export interface ReviewStore {
    */
   setStartOverride(worktreeId: string, commit: string | null, setAt?: string): void;
   getStartOverride(worktreeId: string): StartOverride | null;
+
+  /** Every mark of an identity, by path. */
+  getMarks(worktreeId: string): Mark[];
+  /**
+   * Stores marks for an identity, each replacing the path's current mark. The identity must
+   * have been recorded with `upsertWorktree` first; otherwise this throws a `StoreError`. A
+   * snapshot a replaced mark leaves unreferenced stays until pruning, so an undo can bring
+   * the mark back with it.
+   */
+  setMarks(worktreeId: string, marks: readonly MarkInput[]): void;
+  /** Deletes an identity's marks for `paths`, or all of them without `paths`. */
+  deleteMarks(worktreeId: string, paths?: readonly string[]): void;
+  /**
+   * Keeps `bytes` as the snapshot named `hash` (a `resultHash` that is an object id). A
+   * snapshot already kept under that name is left as it is: the name is the content's.
+   */
+  putSnapshot(hash: string, bytes: Uint8Array): void;
+  /** The snapshot's content, or `null` when it is not kept. */
+  getSnapshot(hash: string): Buffer | null;
+  /** Whether a snapshot is kept under `hash`, without reading it. */
+  hasSnapshot(hash: string): boolean;
+  snapshotUsage(): SnapshotUsage;
+  /** Deletes every snapshot no mark references. Answers how many went. */
+  deleteUnreferencedSnapshots(): number;
+  /**
+   * Brings the snapshot store under `capBytes`: the oldest unreferenced snapshots go first,
+   * then the snapshots of the oldest marks, whose `snapshotHash` becomes `null`. Answers how
+   * many snapshots went.
+   */
+  pruneSnapshots(capBytes: number): number;
+  /**
+   * The identities of one repository whose checkout path is not in `seenPaths` and which
+   * were last seen before `olderThan` (a store time).
+   */
+  listStaleWorktrees(
+    commonDir: string,
+    seenPaths: ReadonlySet<string>,
+    olderThan: string,
+  ): WorktreeRow[];
+  /**
+   * Forgets an identity: its row, its start override and its marks, then the snapshots that
+   * leaves unreferenced.
+   */
+  deleteWorktree(worktreeId: string): void;
+  /** Deletes every mark and every snapshot; identities and start overrides stay. */
+  clearReviewData(): void;
+
   /** Writes anything pending and closes the store; it cannot be used afterwards. */
   close(): void;
 }

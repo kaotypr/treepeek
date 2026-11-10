@@ -36,6 +36,10 @@ export const keys = {
       request.ref ?? null,
       request.startOverride ?? null,
     ] as const,
+  /** Every checkout's review status: the prefix "Clear review data" invalidates. */
+  reviewStatuses: () => ["reviewStatus"] as const,
+  /** One checkout's review status (`review.status`, `review.changed`). */
+  reviewStatus: (checkoutPath: string) => ["reviewStatus", checkoutPath] as const,
   /** Every file diff of one checkout. */
   checkoutDiffs: (checkoutPath: string) => ["fileDiff", checkoutPath] as const,
   fileDiff: (checkoutPath: string, comparisonKey: string, file: FileKey, resultHash: string) =>
