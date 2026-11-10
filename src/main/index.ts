@@ -306,15 +306,24 @@ function start(): void {
 
   // End-to-end runs: click menu items the way a person would (`test-hooks.ts`).
   let pendingMenuClicks = testMenuClicks();
+  /** A `TREEPEEK_E2E_MENU` entry `wait:<id>` waits for the item to be enabled. */
+  const WAIT_PREFIX = "wait:";
   const clickTestMenuItems = (win: BrowserWindow | null) => {
     const ids = pendingMenuClicks;
     if (!ids) return;
     pendingMenuClicks = null;
     const menu = Menu.getApplicationMenu();
     applyCommandState(menu, win ? (commandStates.get(win.webContents.id) ?? null) : null);
-    for (const id of ids) {
+    for (const [index, entry] of ids.entries()) {
+      const waits = entry.startsWith(WAIT_PREFIX);
+      const id = waits ? entry.slice(WAIT_PREFIX.length) : entry;
       const item = menu?.getMenuItemById(id);
       if (!item?.enabled) {
+        if (waits && item && win) {
+          // Tried again at the window's next report, with the items after it.
+          pendingMenuClicks = ids.slice(index);
+          break;
+        }
         log.info("test menu click skipped", { id, reason: item ? "disabled" : "unknown" });
         continue;
       }
