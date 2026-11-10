@@ -60,6 +60,11 @@ export const MainToCoreSchema = v.variant("type", [
     id: v.pipe(v.number(), v.integer(), v.minValue(1)),
     path: PathSchema,
   }),
+  /**
+   * The Mac woke from sleep (`powerMonitor` `resume`). FSEvents may have dropped events
+   * meanwhile, so the core service checks every window's checkouts again.
+   */
+  v.object({ type: v.literal("power.resume") }),
 ]);
 export type MainToCore = v.InferOutput<typeof MainToCoreSchema>;
 

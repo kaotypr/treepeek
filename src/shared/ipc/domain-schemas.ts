@@ -1,4 +1,5 @@
 import * as v from "valibot";
+import { CHANGE_KINDS, REFRESH_PAUSE_REASONS } from "../domain/change";
 import { COMPARISON_KINDS } from "../domain/compare";
 import { FILE_REVIEW_STATES } from "../domain/review";
 import { IPC_ERROR_CODES } from "./result";
@@ -173,4 +174,12 @@ export const ReviewStatusSchema = v.object({
 export const PreviousMarkSchema = v.object({
   path: v.string(),
   resultHash: v.nullable(v.string()),
+});
+
+export const ChangeKindSchema = v.picklist(CHANGE_KINDS);
+
+export const RefreshPauseSchema = v.object({
+  path: v.string(),
+  reason: v.picklist(REFRESH_PAUSE_REASONS),
+  since: v.number(),
 });

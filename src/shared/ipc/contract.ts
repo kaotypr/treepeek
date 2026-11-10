@@ -11,6 +11,7 @@ import {
 } from "../settings";
 import { type CallMap, defineCall, defineEvent, type EventMap } from "./define";
 import {
+  ChangeKindSchema,
   CheckoutSchema,
   ComparisonResultSchema,
   FileCategorySchema,
@@ -18,6 +19,7 @@ import {
   FolderNodeSchema,
   PathSchema,
   PreviousMarkSchema,
+  RefreshPauseSchema,
   RefSchema,
   RepositorySchema,
   ReviewStatusSchema,
@@ -29,7 +31,7 @@ import {
  * Bumped whenever a channel's shape changes. Main, the core service and every window come
  * from one build, so a mismatch means something is badly wrong; it is still checked.
  */
-export const CONTRACT_VERSION = 8;
+export const CONTRACT_VERSION = 9;
 
 const Empty = v.strictObject({});
 
@@ -236,6 +238,15 @@ export const mainCalls = {
   /** Runs git discovery again ("Try again", "Detect again"); the result arrives as `git.state`. */
   "git.detect": defineCall({
     name: "git.detect",
+    request: Empty,
+    response: v.object({}),
+  }),
+  /**
+   * Test-only (refused unless the app runs with `NODE_ENV=test`): does what the Mac waking
+   * from sleep does, so an end-to-end test can check live refresh catches up after it.
+   */
+  "test.powerResume": defineCall({
+    name: "test.powerResume",
     request: Empty,
     response: v.object({}),
   }),
@@ -475,6 +486,41 @@ export const coreCalls = {
     request: v.strictObject({ checkoutPath: PathSchema, viewed: v.boolean() }),
     response: v.object({ status: ReviewStatusSchema, previous: v.array(PreviousMarkSchema) }),
   }),
+  /**
+   * Lets live refresh run again where it paused: a checkout's working tree after an event
+   * storm, and (once more) a folder no watcher could watch. The window then rescans (⌘R),
+   * which reads everything the pause may have missed.
+   */
+  "refresh.resume": defineCall({
+    name: "refresh.resume",
+    request: Empty,
+    response: v.object({}),
+  }),
+  /**
+   * Test-only (refused unless the app runs with `NODE_ENV=test`): what live refresh is
+   * doing, for end-to-end checks: the watcher backend in use, every subscription, the
+   * folders no watcher could watch, the core service's memory, and how many of each call
+   * this window made. `suspend` stops (or restarts) delivering filesystem events, as if
+   * they were lost while the Mac slept.
+   */
+  "test.liveRefresh": defineCall({
+    name: "test.liveRefresh",
+    request: v.strictObject({ suspend: v.exactOptional(v.boolean()) }),
+    response: v.object({
+      backend: v.picklist(["fsevents", "fs.watch"]),
+      subscriptions: v.array(
+        v.object({
+          kind: v.string(),
+          path: v.string(),
+          backend: v.nullable(v.picklist(["fsevents", "fs.watch"])),
+          holders: v.number(),
+        }),
+      ),
+      unavailable: v.array(v.string()),
+      rssBytes: v.number(),
+      calls: v.record(v.string(), v.number()),
+    }),
+  }),
   /** What the snapshot store holds (Settings › Advanced). */
   "review.storeUsage": defineCall({
     name: "review.storeUsage",
@@ -522,6 +568,45 @@ export const coreEvents = {
   "review.changed": defineEvent({
     name: "review.changed",
     payload: ReviewStatusSchema,
+  }),
+  /**
+   * Live refresh: a checkout of this window's scan changed on disk or in Git, and this is
+   * the checkout as it is now. `changed` says what moved (the renderer maps each kind to
+   * the queries it fetches again). `structure` announces a checkout that appeared;
+   * `removed` one that disappeared, carrying the checkout as it was last seen.
+   */
+  "refresh.checkout": defineEvent({
+    name: "refresh.checkout",
+    payload: v.object({
+      checkoutPath: v.string(),
+      checkout: CheckoutSchema,
+      changed: v.pipe(v.array(ChangeKindSchema), v.minLength(1)),
+    }),
+  }),
+  /**
+   * Live refresh: the timeline changed (a start or a HEAD moved its order or relations) or
+   * the set of checkouts did (a worktree added or removed): the whole timeline, the
+   * repositories, the folder tree and the folders that could not be read, as `scan.done`
+   * carries them.
+   */
+  "refresh.timeline": defineEvent({
+    name: "refresh.timeline",
+    payload: v.object({
+      timeline: v.array(TimelineEntrySchema),
+      repositories: v.array(RepositorySchema),
+      folders: v.array(FolderNodeSchema),
+      problems: v.array(ScanProblemSchema),
+    }),
+  }),
+  /**
+   * Where live refresh is not running for this window now: checkouts whose working-tree
+   * refresh paused after an event storm, and folders no watcher could watch. Sent whenever
+   * that changes; empty once everything is live again.
+   */
+  "refresh.paused": defineEvent({
+    name: "refresh.paused",
+    payload: v.object({ paused: v.array(RefreshPauseSchema) }),
+    sticky: true,
   }),
 } as const satisfies EventMap;
 
