@@ -139,8 +139,18 @@ test.describe(`review status performance (${target})`, () => {
       await expect.poll(() => backgroundTimes(app).length, { timeout: 30_000 }).toBe(2);
       const warm = backgroundTimes(app)[1] ?? Number.NaN;
 
+      const git = await page.evaluate(
+        () =>
+          new Promise<unknown>((resolveGit) => {
+            const off = window.treepeek.on("git.state", (state) => {
+              off();
+              resolveGit(state);
+            });
+          }),
+      );
       const result = {
         target,
+        git,
         machine: {
           cpu: cpus()[0]?.model ?? "unknown",
           cores: cpus().length,

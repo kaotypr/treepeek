@@ -219,6 +219,26 @@ With Apple Git 2.50.1 the same three took 648, 359 and 7 ms. One `hash-object` p
 hashes the whole tree in chunks of 256 paths; without hashing, the rest of the time is
 `ls-files`, `lstat` of every file and the binary sniff of each file's first 8 KB.
 
+### Review status after a scan
+
+Review marks compute every checkout's review status after each scan, in the git queue's
+low lane, two checkouts at a time (`core/review/background.ts`). Measured with
+`TREEPEEK_PERF=1 bun run test:e2e tests/e2e/review-status.perf.spec.ts` on 2026-11-10, on
+the same machine and fixture as the scan baseline (30 checkouts), in the built app
+(Electron, `APP_TARGET=dev`) with Homebrew Git 2.55.0. Four runs:
+
+| From `scan.done` to the last checkout's status          | Runs                  | Median |
+| ------------------------------------------------------- | --------------------- | ------ |
+| Cold (first scan; no comparison or hash caches)         | 285, 299, 313, 316 ms | 306 ms |
+| Warm (⌘R; hash cache kept, comparison lists read again) | 158, 163, 169, 175 ms | 166 ms |
+
+Cold is the core service's own measure (its `review status computed` log line, from
+`scan.done` to the last `review.changed`); warm is also measured in the page, from the
+`scan.done` event to the 30th `review.changed`, within 2 ms of the log. The target is
+5 s. Selecting the checkout the background reaches last, right after `scan.done` of a ⌘R,
+showed its file list in 11–14 ms; selecting one with nothing running took 23–25 ms (both
+measured from the test, over DevTools, so they include the protocol's round trips).
+
 ## Windows: vibrancy, folder drops and the test-only open hook
 
 Scan windows put the macOS `sidebar` material behind the timeline and navigator
