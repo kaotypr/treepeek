@@ -146,14 +146,15 @@ test.describe(`browse (${target})`, () => {
     );
     await expect(details.getByTestId("checkout-start-override")).toHaveText(" (set by you)");
     await expect(details.getByTestId("checkout-counts")).toContainText("3 commits ·");
-    expect(await listedFiles(page)).toEqual(["feature.txt", "later.txt", "src/a.ts"]);
+    // The list is fetched again after the start changes; until then it shows the old one.
+    await expect.poll(() => listedFiles(page)).toEqual(["feature.txt", "later.txt", "src/a.ts"]);
 
     await details.getByRole("button", { name: "Change…" }).click();
     await dialog.getByRole("button", { name: "Use the first-seen start" }).click();
     await expect(dialog).toBeHidden();
     await expect(details.getByTestId("checkout-start-commit")).toHaveText(reflogStart);
     await expect(details.getByTestId("checkout-start-override")).toHaveCount(0);
-    expect(await listedFiles(page)).toEqual(["later.txt"]);
+    await expect.poll(() => listedFiles(page)).toEqual(["later.txt"]);
   });
 
   test("⌘R rescans, keeps the selection, and finds new checkouts", async () => {
