@@ -11,6 +11,8 @@ import type { PortLike } from "../../src/core/rpc";
 import { SessionRegistry } from "../../src/core/sessions/registry";
 import type { Session, SessionServices } from "../../src/core/sessions/session";
 import type { ReviewStore } from "../../src/core/store/review-store";
+import { defaultBackends } from "../../src/core/watch/backends";
+import { LiveRefresh, type LiveRefreshOptions } from "../../src/core/watch/live";
 import type { PortFromCore, Result } from "../../src/shared/ipc";
 import { quietLogger } from "./core-scan";
 import { testGitPath } from "./git";
@@ -88,17 +90,47 @@ function client(port: MessagePort): Client {
 export interface Harness {
   readonly state: CoreState;
   readonly services: SessionServices;
+  /** Live refresh, when the harness was asked for it. */
+  readonly live: LiveRefresh | null;
   readonly registry: SessionRegistry;
   /** Opens a window's session; returns it with its client. */
   open(windowId: number): { session: Session; client: Client };
   /** Closes every session and the shared state. */
   dispose(): void;
+  /**
+   * Closes everything and resolves once every watcher has stopped. Folders a test deletes
+   * afterwards are no longer watched: `@parcel/watcher` stops a stream itself when its
+   * folder goes, and doing that while an unsubscribe of the same stream runs corrupts
+   * memory.
+   */
+  disposeAndWait(): Promise<void>;
 }
 
-/** Sessions sharing one `CoreState` and the given store (`null`: none). */
-export function harness(store: () => ReviewStore | null = () => null): Harness {
+/** What live refresh runs with in a harness; real watchers unless `backends` says otherwise. */
+export type HarnessLive = Partial<Pick<LiveRefreshOptions, "backends" | "timing">>;
+
+/**
+ * Sessions sharing one `CoreState` and the given store (`null`: none), with live refresh
+ * when `live` is given.
+ */
+export function harness(store: () => ReviewStore | null = () => null, live?: HarnessLive): Harness {
   const state = new CoreState();
-  const services: SessionServices = { state, store, sessions: () => registry.all() };
+  const refresh = live
+    ? new LiveRefresh({
+        state,
+        store,
+        sessions: () => registry.all(),
+        log: quietLogger(),
+        backends: live.backends ?? defaultBackends(),
+        ...(live.timing ? { timing: live.timing } : {}),
+      })
+    : null;
+  const services: SessionServices = {
+    state,
+    store,
+    sessions: () => registry.all(),
+    ...(refresh ? { live: refresh } : {}),
+  };
   const registry: SessionRegistry = new SessionRegistry(quietLogger(), services, (session) =>
     registerSessionCalls(session, services),
   );
@@ -106,6 +138,7 @@ export function harness(store: () => ReviewStore | null = () => null): Harness {
   return {
     state,
     services,
+    live: refresh,
     registry,
     open(windowId) {
       const { port1, port2 } = new MessageChannel();
@@ -115,6 +148,13 @@ export function harness(store: () => ReviewStore | null = () => null): Harness {
     },
     dispose() {
       registry.closeAll();
+      void refresh?.dispose();
+      state.close();
+      for (const port of ports) port.close();
+    },
+    async disposeAndWait() {
+      registry.closeAll();
+      await refresh?.dispose();
       state.close();
       for (const port of ports) port.close();
     },
