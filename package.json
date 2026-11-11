@@ -17,6 +17,7 @@
     "lint": "biome check .",
     "format": "biome format --write .",
     "test": "vitest run",
+    "test:core": "vitest run --project node tests/unit/core tests/unit/shared",
     "test:e2e": "playwright test",
     "notices": "bun ./build/generate-notices.ts",
     "licenses:check": "bun ./build/check-licenses.ts",

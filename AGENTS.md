@@ -19,6 +19,7 @@ the same pull request and say why.
 | Lint and format check                                            | `bun run lint` (fix formatting with `bun run format`)                   |
 | Type-check                                                       | `bun run typecheck`                                                     |
 | Unit and integration tests                                       | `bun run test`                                                          |
+| Core and shared unit tests only (the Linux job in CI)            | `bun run test:core`                                                     |
 | Build the development pages into `out-lab/`                      | `bun run build:lab`                                                     |
 | End-to-end tests (needs `bun run build` and `bun run build:lab`) | `bun run test:e2e`                                                      |
 | Watch an end-to-end run (windows shown normally)                 | `TREEPEEK_E2E_SHOW=1 bun run test:e2e`                                  |
@@ -87,6 +88,8 @@ the code to the process that owns it.
 | Trusted-sender check, permissions, startup                                     | `src/main/index.ts`                                                                                         |
 | Main call routing and validation                                               | `src/main/router.ts`, `src/main/ipc.ts` (`handleMain`)                                                      |
 | Core service lifecycle and restarts                                            | `src/main/core-supervisor.ts`                                                                               |
+| The host-free core service entry (`createCoreService`), plain Node             | `src/core/service.ts`                                                                                       |
+| The desktop's core service process: parent port, contract check, handlers      | `src/core/index.ts`, an adapter over `service.ts`                                                           |
 | Core call routing, validation, cancellation                                    | `src/core/rpc.ts` (`CoreRpc`)                                                                               |
 | Core sessions and the path rule                                                | `src/core/sessions/` (`session.ts`, `path-rule.ts`)                                                         |
 | Core call handlers (scan, comparisons, diffs, start overrides)                 | `src/core/handlers/`                                                                                        |
