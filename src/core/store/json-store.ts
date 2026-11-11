@@ -149,7 +149,9 @@ type FileRead =
  * - Every call that touches a document first compares the file's stamp (inode, size,
  *   mtime) with the one this process last read or wrote, and reads it again when another
  *   process replaced it. A worktree id or common dir it does not know makes it list the
- *   folder again. Readers take no lock: a file only ever changes by an atomic rename.
+ *   folder again. Readers take no lock: a file only ever changes by an atomic rename. A
+ *   worktree delete is the one exception: it is guarded by the worktree as last read, so
+ *   pruning drops it when another process scanned or changed the worktree since.
  * - Each change is kept as a pending change with its base (`json-merge.ts`). A write takes
  *   the repository's lock (`file-lock.ts`), merges the pending changes into the file as it
  *   is then, writes a temporary file (pid and nonce in its name), fsyncs it and renames it
@@ -169,9 +171,9 @@ type FileRead =
  * Marks live in their repository's document. Snapshots are shared by every repository, so
  * their table is the snapshot folder itself (`snapshots/`): a file's size and time are its
  * row, and references are counted across every repository's file, read again first, and
- * this process's pending marks. A snapshot is deleted only once it has been unused for
- * `SNAPSHOT_GRACE_MS`, unless this process wrote it and nobody has linked it since:
- * linking a snapshot to a mark touches the file.
+ * this process's pending marks. Linking a snapshot to a mark touches its file, and a
+ * snapshot is deleted only once its file is `SNAPSHOT_GRACE_MS` old, unless this process
+ * wrote it and its time is still the one this process left.
  */
 export class JsonReviewStore implements ReviewStore {
   readonly engine = "json" as const;
@@ -442,7 +444,14 @@ export class JsonReviewStore implements ReviewStore {
 
   deleteWorktree(worktreeId: string): void {
     this.#check();
-    const repo = this.#worktreeRepository(worktreeId);
+    // Not read again first: the delete is guarded by the worktree as this process last read
+    // it, when it judged it stale (`listStaleWorktrees`), so anyone touching it since then
+    // keeps it.
+    let repo = this.#byWorktree.get(worktreeId);
+    if (!repo) {
+      this.#discover();
+      repo = this.#byWorktree.get(worktreeId);
+    }
     if (!repo) return;
     const { view } = repo;
     const held =
@@ -455,7 +464,6 @@ export class JsonReviewStore implements ReviewStore {
         if (mark.snapshotHash !== null) snapshots.add(mark.snapshotHash);
       }
     }
-    // Guarded by what this process last read: anyone touching the worktree since keeps it.
     repo.pending.forgetWorktree(worktreeId);
     repo.pending.deletes.set(worktreeId, { base: worktreeState(repo.synced, worktreeId) });
     delete view.worktrees[worktreeId];
