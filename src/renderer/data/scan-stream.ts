@@ -4,6 +4,9 @@
  * then `scan.done` (timeline, repositories, problems). The picker fills in while the scan
  * is still running.
  *
+ * A window scans one folder and shows the checkouts its walk finds there, so it opens its
+ * session with that one root and the `walked` worktree choice.
+ *
  * Checkouts are written once per animation frame, not once per event, so a large scan does
  * not re-render the panels for every checkout.
  */
@@ -135,7 +138,7 @@ export function startScan(
     pending = [];
     write((scan) => ({ ...scan, phase: "opening", error: null }));
 
-    const opened = await core().session.open({ scanRoot });
+    const opened = await core().session.open({ scanRoots: [scanRoot], worktrees: "walked" });
     if (mine !== generation || stopped) return;
     if (!opened.ok) {
       fail(opened.error);
@@ -153,10 +156,13 @@ export function startScan(
       return;
     }
     replied = true;
+    // The one root this window asked for. Its path is the real path, which may not be the
+    // `scanRoot` main gave the window, so it is taken as the only entry, not looked up.
+    const [root] = result.value.roots;
     write((scan) => ({
       ...scan,
       phase: "resolving",
-      folders: result.value.folders,
+      folders: root?.folders ?? [],
       depthLimit: result.value.depthLimit,
     }));
   };

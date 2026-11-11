@@ -57,7 +57,9 @@ function fakeApi() {
     },
     core: {
       session: { open: answer("session.open", { sessionId: "s", gitVersion: "2.50.0" }) },
-      scan: { start: answer("scan.start", { scanRoot: "/w", folders: [], depthLimit: 7 }) },
+      scan: {
+        start: answer("scan.start", { roots: [{ path: "/w", folders: [] }], depthLimit: 7 }),
+      },
       request: { cancel: answer("request.cancel", {}) },
     },
   };
