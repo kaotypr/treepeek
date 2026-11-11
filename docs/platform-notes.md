@@ -67,6 +67,21 @@ INFO [core:service] core service started {"pid":72953,"node":"24.22.2","electron
 So review marks can use `node:sqlite`; the JSON-per-repository fallback stays as the
 designed safety net for a future Electron that drops it.
 
+The core loads the module through `process.getBuiltinModule("node:sqlite")`
+(`loadNodeSqlite` in `src/core/store/sqlite-store.ts`, which the probe uses too), not
+through `createRequire` on the module's own URL. The call needs no module URL, so a
+CommonJS bundle of the core, where esbuild leaves `import.meta` empty, finds the module
+as well; and where the module is missing it returns `undefined` instead of throwing, so
+the store falls back to JSON. `process.getBuiltinModule` arrived in Node 22.3; Electron
+45.2.3 runs Node 24.22.2. `tests/unit/core/service-cjs.test.ts` bundles the core as
+CommonJS with esbuild and checks both paths. The Electron utility process still finds the
+module that way (confirmed 2026-11-11, built and packaged app):
+
+```
+[dev] core service node:sqlite probe: {"available":true,"version":"3.53.4"}
+[packaged] core service node:sqlite probe: {"available":true,"version":"3.53.4"}
+```
+
 ## Minimum macOS: 13.0 (Ventura)
 
 Electron 44 and later need macOS 13 (Ventura), so Treepeek on Electron 45 does too. It is
