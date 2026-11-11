@@ -58,8 +58,9 @@ const sleeper = new Int32Array(new SharedArrayBuffer(4));
  * nonce and the time. A second taker retries with growing waits (`Atomics.wait`, so the
  * whole call stays synchronous) for up to `timeoutMs`, and answers `null` if the lock is
  * still held then. A lock whose holder is dead (`process.kill(pid, 0)` fails with
- * `ESRCH`), or that is older than `staleMs`, is broken: renamed to a unique name, then
- * removed, so two breakers cannot both remove a fresh lock by name.
+ * `ESRCH`), that names no holder once `LOCK_UNOWNED_STALE_MS` old, or that is older than
+ * `staleMs`, is broken: renamed to a unique name, then removed, so two breakers cannot
+ * both remove a fresh lock by name.
  *
  * Throws only for file system errors other than the lock being held.
  */
