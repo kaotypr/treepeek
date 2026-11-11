@@ -17,7 +17,10 @@ import { testGitVersion } from "../../../support/git";
 import { type Fixture, fixture } from "../../../support/git-fixture";
 
 type ScanDone = EventPayload<CoreEvents["scan.done"]>;
-type ScanStarted = { scanRoot: string; folders: { relativePath: string }[]; depthLimit: number };
+type ScanStarted = {
+  roots: { path: string; folders: { relativePath: string }[] }[];
+  depthLimit: number;
+};
 
 let fx: Fixture;
 const harnesses: Harness[] = [];
@@ -41,8 +44,8 @@ afterEach(() => {
 });
 afterAll(() => fx.cleanup());
 
-async function openAt(client: Client, scanRoot: string) {
-  return client.call<{ sessionId: string; gitVersion: string }>("session.open", { scanRoot });
+async function openAt(client: Client, ...scanRoots: string[]) {
+  return client.call<{ sessionId: string; gitVersion: string }>("session.open", { scanRoots });
 }
 
 /** Records every git process started from now on. */
@@ -63,8 +66,40 @@ describe("session.open", () => {
     const opened = await openAt(client, link);
     expect(opened).toMatchObject({ ok: true, value: { gitVersion: testGitVersion() } });
     const started = await client.call<ScanStarted>("scan.start", { requestId: "s1" });
-    expect(started).toMatchObject({ ok: true, value: { scanRoot: fx.root, depthLimit: 7 } });
+    expect(started).toMatchObject({ ok: true, value: { depthLimit: 7 } });
+    expect(started.ok && started.value.roots.map((root) => root.path)).toEqual([fx.root]);
     await client.waitForEvent("scan.done");
+  });
+
+  it("keeps several roots each once, leaving a root inside another to the outer walk", async () => {
+    setTestGit();
+    const { client } = newHarness().open(1);
+    const link = fx.outsidePath("roots-link");
+    symlinkSync(fx.path("work"), link);
+    expect(await openAt(client, fx.path("work"), fx.root, link, fx.path("lib"))).toMatchObject({
+      ok: true,
+    });
+    const started = await client.call<ScanStarted>("scan.start", { requestId: "s1" });
+    expect(started.ok && started.value.roots.map((root) => root.path)).toEqual([fx.root]);
+    await client.waitForEvent("scan.done");
+    const checkouts = client.events<Checkout>("scan.checkout").map((item) => item.path);
+    expect(checkouts.sort()).toEqual(
+      [fx.path("app"), fx.path("lib"), fx.path("work/a"), fx.path("work/b")].sort(),
+    );
+  });
+
+  it("refuses the roots when one of them cannot be scanned, naming it", async () => {
+    setTestGit();
+    const { client } = newHarness().open(1);
+    const missing = fx.path("missing-root");
+    expect(await openAt(client, fx.path("lib"), missing)).toMatchObject({
+      ok: false,
+      error: { code: "invalidRequest", detail: { scanRoot: "missing", path: missing } },
+    });
+    expect(await openAt(client, fx.path("lib"), "relative/path")).toMatchObject({
+      ok: false,
+      error: { code: "invalidRequest", detail: { path: "relative/path" } },
+    });
   });
 
   it("refuses a relative path, a missing folder and a file", async () => {
@@ -87,7 +122,7 @@ describe("session.open", () => {
     writeFileSync(file, "x");
     expect(await openAt(client, fx.path("missing"))).toMatchObject({
       ok: false,
-      error: { code: "invalidRequest", detail: { scanRoot: "missing" } },
+      error: { code: "invalidRequest", detail: { scanRoot: "missing", path: fx.path("missing") } },
     });
     expect(await openAt(client, file)).toMatchObject({
       ok: false,
@@ -125,7 +160,7 @@ describe("session.open", () => {
     try {
       expect(await client.call("scan.start", { requestId: "s1" })).toMatchObject({
         ok: false,
-        error: { code: "invalidRequest", detail: { scanRoot: "unreadable" } },
+        error: { code: "invalidRequest", detail: { scanRoot: "unreadable", path: folder } },
       });
     } finally {
       chmodSync(folder, 0o755);
@@ -165,7 +200,7 @@ describe("scan.start", () => {
     const started = await client.call<ScanStarted>("scan.start", { requestId: "s1" });
     expect(started.ok).toBe(true);
     if (!started.ok) return;
-    expect(started.value.folders.map((folder) => folder.relativePath)).toEqual([
+    expect(started.value.roots[0]?.folders.map((folder) => folder.relativePath)).toEqual([
       "",
       "app",
       "lib",

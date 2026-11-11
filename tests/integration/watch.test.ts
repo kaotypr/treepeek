@@ -51,7 +51,7 @@ afterEach(async () => {
 /** Opens a window's session on the fixture, scans, and waits until it is watched. */
 async function watching(windowId = 1): Promise<Client> {
   const { client } = h.open(windowId);
-  expect(await client.call("session.open", { scanRoot: fx.root })).toMatchObject({ ok: true });
+  expect(await client.call("session.open", { scanRoots: [fx.root] })).toMatchObject({ ok: true });
   expect(await client.call("scan.start", { requestId: `scan-${windowId}` })).toMatchObject({
     ok: true,
   });

@@ -7,12 +7,15 @@ import { resolveIdentity, worktreeId } from "../../../../src/core/store/identity
 import { openReviewStore } from "../../../../src/core/store/open-store";
 import type { ReviewStore, WorktreeRow } from "../../../../src/core/store/review-store";
 import { REVIEW_LIMITS } from "../../../../src/shared/constants";
+import type { WorktreeChoice } from "../../../../src/shared/domain/scan";
 
 const ROOT = "/scans/root";
+const OTHER_ROOT = "/scans/other";
 const COMMON = "/scans/root/app/.git";
 const GONE = "/scans/root/app-gone";
 const KEPT = "/scans/root/app-kept";
 const ELSEWHERE = "/elsewhere/app-other";
+const IN_OTHER_ROOT = "/scans/other/app-there";
 const START = "1".repeat(40);
 const H1 = "a".repeat(40);
 const H2 = "b".repeat(40);
@@ -48,8 +51,14 @@ function seen(checkoutPath: string): WorktreeRow {
   return row;
 }
 
-const scan = (listed: string[]) => ({
-  scanRoot: ROOT,
+/** What a desktop scan of `ROOT` gives pruning: its walked checkouts only. */
+const scan = (
+  listed: string[],
+  worktrees: WorktreeChoice = "walked",
+  roots: string[] = [ROOT],
+) => ({
+  roots: roots.map((path) => ({ path, folders: [] })),
+  worktrees,
   listedCheckouts: new Map([[COMMON, new Set(listed)]]),
 });
 
@@ -97,9 +106,29 @@ describe("pruneAfterScan", () => {
     expect(store.getWorktree(again.worktreeId)).not.toBeNull();
     // A repository the scan did not list at all is not judged either.
     expect(
-      pruneAfterScan(store, { scanRoot: ROOT, listedCheckouts: new Map() }, { now: day(400) })
-        .worktrees,
+      pruneAfterScan(
+        store,
+        { roots: [{ path: ROOT, folders: [] }], worktrees: "all", listedCheckouts: new Map() },
+        { now: day(400) },
+      ).worktrees,
     ).toBe(0);
+  });
+
+  it("judges a worktree under any scan root, and anywhere when the scan lists outside ones", () => {
+    const elsewhere = seen(ELSEWHERE);
+    const other = seen(IN_OTHER_ROOT);
+    seen(KEPT);
+    // Inside only: under one of the roots, but not elsewhere.
+    expect(
+      pruneAfterScan(store, scan([KEPT], "inside", [ROOT, OTHER_ROOT]), { now: day(31) }),
+    ).toMatchObject({ worktrees: 1 });
+    expect(store.getWorktree(other.worktreeId)).toBeNull();
+    expect(store.getWorktree(elsewhere.worktreeId)).not.toBeNull();
+    // Every worktree Git lists: an outside one Git no longer lists goes after 30 days.
+    expect(pruneAfterScan(store, scan([KEPT], "all"), { now: day(29) }).worktrees).toBe(0);
+    expect(store.getWorktree(elsewhere.worktreeId)).not.toBeNull();
+    expect(pruneAfterScan(store, scan([KEPT], "all"), { now: day(31) }).worktrees).toBe(1);
+    expect(store.getWorktree(elsewhere.worktreeId)).toBeNull();
   });
 
   it("over the cap, drops unreferenced snapshots, then the oldest marks' snapshots", () => {

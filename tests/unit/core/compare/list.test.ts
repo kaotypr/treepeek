@@ -113,7 +113,7 @@ beforeAll(async () => {
 
   created = harness();
   client = created.open(1).client;
-  await client.call("session.open", { scanRoot: fx.root });
+  await client.call("session.open", { scanRoots: [fx.root] });
   await client.call("scan.start", { requestId: "scan" });
   await client.waitForEvent("scan.done");
 });

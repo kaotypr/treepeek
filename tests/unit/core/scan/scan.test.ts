@@ -447,7 +447,10 @@ describe("several roots and outside worktrees", () => {
       const scanned = await scan([local.path("one"), local.path("two")], {
         state: coreState(),
       });
-      expect(scanned.roots.map((root) => root.path)).toEqual([local.path("one"), local.path("two")]);
+      expect(scanned.roots.map((root) => root.path)).toEqual([
+        local.path("one"),
+        local.path("two"),
+      ]);
       expect(scanned.roots[1]?.folders.map((node) => node.relativePath)).toEqual([
         "",
         "app-feature",

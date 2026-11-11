@@ -161,7 +161,11 @@ async function freshSession(root: string): Promise<{ created: Harness; client: C
   setTestGit();
   const created = harness();
   const { client } = created.open(1);
-  unwrap(await client.call("session.open", { scanRoot: root }), "session.open");
+  // The desktop's own scan: the walked checkouts only.
+  unwrap(
+    await client.call("session.open", { scanRoots: [root], worktrees: "walked" }),
+    "session.open",
+  );
   return { created, client };
 }
 

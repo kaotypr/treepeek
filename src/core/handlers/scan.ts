@@ -4,15 +4,14 @@ import { requireGit } from "../git/runtime";
 import { scheduleStatusForScan } from "../review/background";
 import { pruneAfterScan } from "../review/prune";
 import { checkScanRoot } from "../scan/root";
-import type { ScanResult } from "../scan/scan";
-import type { WalkResult } from "../scan/walk";
+import { type RootWalk, type ScanResult, scanRootsOf } from "../scan/scan";
 import type { ScanRun, Session, SessionServices } from "../sessions/session";
 import { failWith } from "./errors";
 import { scanRootError } from "./session";
 
 /**
- * `scan.start {requestId}`: answers with the folder tree once the walk finishes. The rest
- * of the scan runs after that answer has been posted, so every `scan.checkout` and the
+ * `scan.start {requestId}`: answers with each root's folder tree once the walks finish. The
+ * rest of the scan runs after that answer has been posted, so every `scan.checkout` and the
  * final `scan.done` reach the window after it. A newer `scan.start`, `request.cancel` with
  * this `requestId`, or the session closing stops the scan; a stopped scan sends no
  * `scan.done`.
@@ -23,15 +22,17 @@ import { scanRootError } from "./session";
  */
 export function registerScanHandlers(session: Session, services: SessionServices): void {
   session.rpc.onCall(coreCalls["scan.start"], async (ctx, _request, signal) => {
-    const scanRoot = session.scanRoot;
-    if (scanRoot === null) {
+    const scanRoots = session.scanRoots;
+    if (scanRoots === null) {
       return err("invalidRequest", "Open the session with a scan root before scanning.");
     }
-    // The folder may have become unreadable since the session opened (a rescan).
-    const root = await checkScanRoot(scanRoot);
-    if (!root.ok) return scanRootError(root.problem);
+    // A folder may have gone or become unreadable since the session opened (a rescan).
+    for (const scanRoot of scanRoots) {
+      const root = await checkScanRoot(scanRoot);
+      if (!root.ok) return scanRootError(root.problem, scanRoot);
+    }
     let run: ScanRun;
-    let walked: WalkResult;
+    let walked: RootWalk[];
     try {
       await requireGit();
       run = session.startScan(signal);
@@ -45,7 +46,7 @@ export function registerScanHandlers(session: Session, services: SessionServices
       );
       if (!result) return;
       session.log.info("scan finished", {
-        scanRoot,
+        scanRoots,
         checkouts: result.checkouts.length,
         problems: result.problems.length,
         durationMs: result.durationMs,
@@ -60,7 +61,7 @@ export function registerScanHandlers(session: Session, services: SessionServices
       void services.live?.watchScan(session);
       void scheduleStatusForScan(session, services, result.checkouts);
     });
-    return ok({ scanRoot, folders: walked.folders, depthLimit: MAX_SCAN_DEPTH });
+    return ok({ roots: scanRootsOf(walked), depthLimit: MAX_SCAN_DEPTH });
   });
 }
 

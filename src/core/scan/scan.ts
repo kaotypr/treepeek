@@ -6,8 +6,8 @@ import type {
   TimelineEntry,
   WorktreeChoice,
 } from "../../shared/domain/scan";
-import type { WorktreeEntry } from "../git/parse/worktree-list";
 import { asIpcError, GitError } from "../git/errors";
+import type { WorktreeEntry } from "../git/parse/worktree-list";
 import type { ScanContext } from "./context";
 import { isAncestor } from "./queries";
 import { buildRepositories } from "./repositories";

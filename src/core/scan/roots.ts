@@ -12,7 +12,9 @@ export type ScanRootsCheck =
  * that cannot be scanned fails the whole check, naming it as it was given.
  */
 export async function checkScanRoots(paths: readonly string[]): Promise<ScanRootsCheck> {
-  const checked = await Promise.all(paths.map(async (path) => ({ path, check: await checkScanRoot(path) })));
+  const checked = await Promise.all(
+    paths.map(async (path) => ({ path, check: await checkScanRoot(path) })),
+  );
   const reals: string[] = [];
   for (const { path, check } of checked) {
     if (!check.ok) return { ok: false, path, problem: check.problem };
@@ -28,7 +30,5 @@ export async function checkScanRoots(paths: readonly string[]): Promise<ScanRoot
  */
 export function outermostRoots(reals: readonly string[]): string[] {
   const unique = [...new Set(reals)];
-  return unique.filter(
-    (root) => !unique.some((other) => other !== root && isWithin(root, other)),
-  );
+  return unique.filter((root) => !unique.some((other) => other !== root && isWithin(root, other)));
 }

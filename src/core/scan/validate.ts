@@ -199,9 +199,7 @@ export async function deriveCheckouts(
   const derived = await Promise.all(
     [...lists].map(async ([commonDir, entries]) => {
       const unwalked = await unwalkedCheckouts(entries, walked, ctx);
-      return Promise.all(
-        unwalked.map((item) => validateUnwalked(item, commonDir, ctx, problems)),
-      );
+      return Promise.all(unwalked.map((item) => validateUnwalked(item, commonDir, ctx, problems)));
     }),
   );
   const valid = derived.flat().filter((item): item is ValidCandidate => item !== null);
