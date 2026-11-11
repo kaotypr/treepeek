@@ -27,7 +27,7 @@ beforeAll(() => {
   wtA = repo.worktree("wt-a", { from: "main" });
   wtB = repo.worktree("nested/wt-b", { from: "main" });
   scan = {
-    scanRoot: fx.root,
+    scanRoots: [fx.root],
     checkouts: [
       { path: repo.path, gitDir: repo.commonDir, commonDir: repo.commonDir },
       { path: wtA.path, gitDir: join(repo.commonDir, "worktrees/wt-a"), commonDir: repo.commonDir },
@@ -53,7 +53,7 @@ describe("watchTargets", () => {
   it("gives a git dir outside its common dir a watch of its own", () => {
     const outside = fx.outsidePath("separate-git-dir");
     const targets = watchTargets({
-      scanRoot: fx.root,
+      scanRoots: [fx.root],
       checkouts: [{ path: repo.path, gitDir: outside, commonDir: repo.commonDir }],
     });
     expect(targets.map((target) => target.kind)).toEqual([
@@ -198,5 +198,58 @@ describe("classify", () => {
     expect(classify(at(fx.root, "x/node_modules"), index)).toBeNull();
     expect(classify(at(fx.root, "1/2/3/4/5/6/7/8/9"), index)).toBeNull();
     expect(classify(fx.outsidePath("elsewhere"), index)).toBeNull();
+  });
+});
+
+describe("several roots and outside checkouts", () => {
+  let other: string;
+  let outsideWt: FixtureCheckout;
+  let wide: WatchedScan;
+
+  beforeAll(() => {
+    other = fx.outsidePath("second-root");
+    outsideWt = repo.outsideWorktree("agents/wt-out", { from: "main" });
+    wide = {
+      scanRoots: [fx.root, other],
+      checkouts: [
+        ...scan.checkouts,
+        {
+          path: outsideWt.path,
+          gitDir: join(repo.commonDir, "worktrees/wt-out"),
+          commonDir: repo.commonDir,
+        },
+      ],
+    };
+  });
+
+  it("watches each root, and an outside checkout's working tree like any other", () => {
+    const targets = watchTargets(wide);
+    expect(targets.map((target) => [target.kind, target.path])).toEqual([
+      ["root", fx.root],
+      ["root", other],
+      ["common", repo.commonDir],
+      ["workingTree", repo.path],
+      ["workingTree", wtA.path],
+      ["workingTree", wtB.path],
+      ["workingTree", outsideWt.path],
+    ]);
+  });
+
+  it("maps an outside checkout's edits and git dir to it, and folders to the root holding them", () => {
+    const index = buildWatchIndex([wide]);
+    expect(classify(join(outsideWt.path, "src/a.ts"), index)).toEqual({
+      kind: "workingTree",
+      checkoutPath: outsideWt.path,
+    });
+    expect(classify(join(repo.commonDir, "worktrees/wt-out/index"), index)).toEqual({
+      kind: "index",
+      checkoutPath: outsideWt.path,
+    });
+    expect(classify(join(other, "new-wt"), index)).toEqual({
+      kind: "structure",
+      scanRoot: other,
+    });
+    // The outside checkout's folder going is the repository's worktree list to tell.
+    expect(classify(outsideWt.path, index)).toBeNull();
   });
 });

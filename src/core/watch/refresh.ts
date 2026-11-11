@@ -15,9 +15,17 @@ import type { ScanContext } from "../scan/context";
 import { isAncestor } from "../scan/queries";
 import { buildRepositories } from "../scan/repositories";
 import { readStatus, resolveCheckout, type ScannedCheckout } from "../scan/resolve-checkout";
-import { walkScanRoot } from "../scan/scan";
+import { scanRootsOf, walkedCandidates, walkScanRoots } from "../scan/scan";
 import { buildTimeline } from "../scan/timeline";
-import { listedPaths, validateCandidates, worktreeList } from "../scan/validate";
+import {
+  listedPaths,
+  type UnwalkedCheckout,
+  unwalkedCheckouts,
+  type ValidCandidate,
+  validateCandidates,
+  validateUnwalked,
+  worktreeList,
+} from "../scan/validate";
 import type { Session } from "../sessions/session";
 import type { ReviewStore } from "../store/review-store";
 import type { WatchChange } from "./manager";
@@ -34,7 +42,7 @@ export interface RefreshRunnerOptions {
 
 /** What one session has to refresh, gathered while its previous refresh ran. */
 interface Batch {
-  /** Re-walk the scan root: checkouts may have appeared or gone. */
+  /** Re-walk the scan roots: checkouts may have appeared or gone. */
   structure: boolean;
   /** Read every checkout again (the Mac woke from sleep). */
   revalidate: boolean;
@@ -71,7 +79,7 @@ const REVIEW_PARALLEL = 2;
  * | `head` | status, history counts; review scope (its right side moved); review status |
  * | `reflog` | start again (identity fallback included), which may move the timeline |
  * | `refs` | status of the checkouts on (or tracking) the moved refs; timeline relations |
- * | `structure` | the scan root walked again; new checkouts resolved, gone ones removed |
+ * | `structure` | the scan roots walked again and the worktree lists read; new checkouts resolved, gone ones removed |
  *
  * Git caches are invalidated once per change, for every window; then each window showing
  * the checkout refreshes its own view (two windows on one repository share the git work
@@ -97,7 +105,7 @@ export class RefreshRunner {
         return;
       case "root":
         for (const session of this.#scanned()) {
-          if (session.scanRoot === change.scanRoot) {
+          if (session.scanRoots?.includes(change.scanRoot)) {
             this.#enqueue(session, (batch) => {
               batch.structure = true;
             });
@@ -125,7 +133,7 @@ export class RefreshRunner {
 
   /**
    * Reads every window's checkouts again: status per checkout, the worktree list per
-   * repository, and the scan root's folders (after sleep, FSEvents may have dropped events).
+   * repository, and the scan roots' folders (after sleep, FSEvents may have dropped events).
    */
   revalidate(): Promise<void> {
     for (const session of this.#scanned()) {
@@ -334,7 +342,7 @@ export class RefreshRunner {
           session.rpc.emit(coreEvents["refresh.timeline"], {
             timeline: scan.timeline,
             repositories: scan.repositories,
-            folders: scan.folders,
+            roots: scan.roots,
             problems: scan.problems,
           });
         }
@@ -373,10 +381,11 @@ export class RefreshRunner {
       const updated = await resolveCheckout(
         {
           path,
-          relativePath: scanned.relativePath,
           gitDir: scanned.gitDir,
           commonDir: scanned.commonDir,
           kind: scanned.checkout.kind,
+          location: scanned.checkout.location,
+          locked: scanned.checkout.locked,
           repo,
         },
         ctx,
@@ -403,9 +412,12 @@ export class RefreshRunner {
   }
 
   /**
-   * Walks the scan root again (git-service design, "The scan", step 1) and validates only
-   * the folders that are not checkouts already. A checkout stays while the walk still finds
-   * it and Git still lists it. Returns `null` when nothing changed.
+   * Walks the scan roots again (git-service design, "The scan", step 1), validates only the
+   * folders that are not checkouts already, and reads the worktree lists of the
+   * repositories the walks found for their other checkouts, as the scan does. A walked
+   * checkout stays while the walk still finds it and Git still lists it; any other while
+   * Git still lists it (not as prunable), its folder is there and the session's worktree
+   * choice keeps it. Returns `null` when nothing changed.
    */
   async #structure(
     session: Session,
@@ -413,10 +425,11 @@ export class RefreshRunner {
   ): Promise<{ added: ScannedCheckout[]; removed: ScannedCheckout[] } | null> {
     const previous = session.lastScan;
     if (!previous) return null;
-    const walked = await walkScanRoot(ctx);
+    const walked = await walkScanRoots(ctx);
+    const roots = scanRootsOf(walked);
+    const candidates = new Set(walkedCandidates(walked));
     const known = new Map(previous.checkouts.map((item) => [item.checkout.path, item]));
-    const candidates = new Set(walked.candidates);
-    const fresh = walked.candidates.filter((path) => !known.has(path));
+    const fresh = [...candidates].filter((path) => !known.has(path));
     const validation = await validateCandidates(fresh, ctx);
     const lists = new Map(validation.worktreeLists);
     const listed = new Map<string, ReadonlySet<string>>(validation.listed);
@@ -432,15 +445,40 @@ export class RefreshRunner {
         listed.set(commonDir, new Set());
       }
     }
-    const kept = previous.checkouts.filter(
-      (item) =>
-        candidates.has(item.checkout.path) &&
-        (listed.get(item.commonDir)?.has(item.checkout.path) ?? false),
+    const isListed = (item: ScannedCheckout) =>
+      listed.get(item.commonDir)?.has(item.checkout.path) ?? false;
+    const walkedKept = previous.checkouts.filter(
+      (item) => candidates.has(item.checkout.path) && isListed(item),
+    );
+
+    // The other checkouts of the repositories the walks found, as the scan derives them.
+    const unwalked = new Map<string, { commonDir: string; item: UnwalkedCheckout }>();
+    const found = new Set([...walkedKept, ...validation.valid].map((item) => item.commonDir));
+    for (const commonDir of found) {
+      const entries = lists.get(commonDir);
+      if (!entries) continue;
+      for (const item of await unwalkedCheckouts(entries, candidates, ctx)) {
+        unwalked.set(item.path, { commonDir, item });
+      }
+    }
+    const kept = previous.checkouts.filter((item) =>
+      candidates.has(item.checkout.path)
+        ? isListed(item)
+        : unwalked.get(item.checkout.path)?.commonDir === item.commonDir,
     );
     const removed = previous.checkouts.filter((item) => !kept.includes(item));
     const problems = [...validation.problems];
+    const derived = await Promise.all(
+      [...unwalked.values()]
+        .filter(({ item }) => !known.has(item.path))
+        .map(({ commonDir, item }) => validateUnwalked(item, commonDir, ctx, problems)),
+    );
+    const valid = [
+      ...validation.valid,
+      ...derived.filter((item): item is ValidCandidate => item !== null),
+    ];
     const resolved = await Promise.all(
-      validation.valid.map(async (candidate) => {
+      valid.map(async (candidate) => {
         try {
           return await resolveCheckout(candidate, ctx);
         } catch (error) {
@@ -456,15 +494,17 @@ export class RefreshRunner {
     if (
       added.length === 0 &&
       removed.length === 0 &&
-      sameJson(previous.folders, walked.folders) &&
+      sameJson(previous.roots, roots) &&
       sameJson(previous.problems, problems)
     ) {
       return null;
     }
     const ordered = await this.#order(ctx, [...kept, ...added], lists);
+    // The session opened again meanwhile (other roots or choice): this result is not its.
+    if (ctx.signal.aborted) return null;
     session.adoptScan({
       ...previous,
-      folders: walked.folders,
+      roots,
       checkouts: ordered.checkouts,
       timeline: ordered.timeline,
       repositories: ordered.repositories,
@@ -523,7 +563,6 @@ export class RefreshRunner {
       checkouts.map((item) => ({
         checkoutPath: item.checkout.path,
         commonDir: item.commonDir,
-        relativePath: item.relativePath,
         start: item.checkout.start,
         head: item.checkout.head,
       })),

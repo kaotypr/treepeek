@@ -8,6 +8,7 @@ import { existsSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { defaultBackends } from "../../src/core/watch/backends";
 import type { ReviewStatus } from "../../src/shared/domain/review";
+import type { Checkout } from "../../src/shared/domain/scan";
 import type { CoreEvents } from "../../src/shared/ipc";
 import type { EventPayload } from "../../src/shared/ipc/define";
 import { resetGitRuntime, setTestGit } from "../support/core-git";
@@ -218,7 +219,8 @@ describe("live refresh in the core service", () => {
       "the timeline with the new worktree",
     );
     expect(grown.timeline).toHaveLength(4);
-    expect(grown.folders.some((folder) => folder.checkoutPath === wtC.path)).toBe(true);
+    expect(grown.roots.map((root) => root.path)).toEqual([fx.root]);
+    expect(grown.roots[0]?.folders.some((folder) => folder.checkoutPath === wtC.path)).toBe(true);
     // The new worktree is part of the window's scan now: it can be compared.
     expect(
       await client.call("comparison.list", { checkoutPath: wtC.path, kind: "working" }),
@@ -246,6 +248,75 @@ describe("live refresh in the core service", () => {
     expect(
       await client.call("comparison.list", { checkoutPath: wtB.path, kind: "working" }),
     ).toMatchObject({ ok: false, error: { code: "notInScan" } });
+  });
+
+  it("watches a worktree outside the root, and adds and drops outside ones", async () => {
+    const elsewhere = repo.outsideWorktree("agents/wt-out", { from: "main" });
+    const client = await watching();
+    expect(
+      client.events<Checkout>("scan.checkout").find((item) => item.path === elsewhere.path),
+    ).toMatchObject({ location: "outside" });
+
+    let from = seen(client);
+    elsewhere.write({ "a.txt": "edited outside\n" });
+    const edited = await nextRefresh(
+      client,
+      from,
+      (p) => p.checkoutPath === elsewhere.path && p.checkout.working.unstaged === 1,
+      "the edit outside the root",
+    );
+    expect(edited.changed).toContain("workingTree");
+
+    from = seen(client);
+    let timelines = seen(client, "refresh.timeline");
+    const added = repo.outsideWorktree("agents/wt-new", { from: "main" });
+    const appeared = await nextRefresh(
+      client,
+      from,
+      (p) => p.checkoutPath === added.path,
+      "the worktree added outside the root",
+    );
+    expect(appeared.changed).toEqual(["structure"]);
+    expect(appeared.checkout.location).toBe("outside");
+    await until(
+      () =>
+        client
+          .events<RefreshTimeline>("refresh.timeline")
+          .slice(timelines)
+          .find((t) => t.repositories[0]?.checkouts.includes(added.path)),
+      "the repository with the new outside worktree",
+    );
+    expect(
+      await client.call("comparison.list", { checkoutPath: added.path, kind: "working" }),
+    ).toMatchObject({ ok: true });
+
+    from = seen(client);
+    timelines = seen(client, "refresh.timeline");
+    repo.repoGit(["worktree", "remove", "--force", added.path]);
+    const removed = await nextRefresh(
+      client,
+      from,
+      (p) => p.checkoutPath === added.path,
+      "the worktree removed outside the root",
+    );
+    expect(removed.changed).toEqual(["removed"]);
+    await until(
+      () =>
+        client
+          .events<RefreshTimeline>("refresh.timeline")
+          .slice(timelines)
+          .find((t) => !t.timeline.some((entry) => entry.checkoutPath === added.path)),
+      "the timeline without the removed outside worktree",
+    );
+    expect(
+      await client.call("comparison.list", { checkoutPath: added.path, kind: "working" }),
+    ).toMatchObject({ ok: false, error: { code: "notInScan" } });
+    // The other outside worktree stays, still watched.
+    expect(
+      await client.call("comparison.list", { checkoutPath: elsewhere.path, kind: "working" }),
+    ).toMatchObject({ ok: true });
+    expect(h.live?.watch.subscriptions().some((item) => item.path === elsewhere.path)).toBe(true);
+    expect(h.live?.watch.subscriptions().some((item) => item.path === added.path)).toBe(false);
   });
 
   it("flags a marked file that changes on disk as changed since viewed", async () => {

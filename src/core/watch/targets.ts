@@ -5,11 +5,12 @@ import { isWithin } from "../sessions/path-rule";
 /**
  * What live refresh watches for one scan (live-refresh design, "What is watched"):
  *
- * - `root`: the scan root, for folders and checkouts that appear or disappear;
+ * - `root`: each scan root, for folders and checkouts that appear or disappear;
  * - `common`: each repository's common dir, for branch tips (`refs/`, `packed-refs`) and
  *   worktrees added or removed (`worktrees/`);
  * - `gitDir`: a checkout's own git dir, for `HEAD`, `index` and `logs/HEAD`;
- * - `workingTree`: each checkout's folder, for edits.
+ * - `workingTree`: each checkout's folder, for edits, wherever it lies (a worktree outside
+ *   every root is watched like one inside).
  */
 export type WatchTargetKind = "root" | "common" | "gitDir" | "workingTree";
 
@@ -40,7 +41,8 @@ export interface WatchedCheckout {
 
 /** What watching needs of a scan. */
 export interface WatchedScan {
-  readonly scanRoot: string;
+  /** Real paths of the scan's roots (none inside another). */
+  readonly scanRoots: readonly string[];
   readonly checkouts: readonly WatchedCheckout[];
 }
 
@@ -64,13 +66,15 @@ export function targetKey(target: Pick<WatchTarget, "kind" | "path">): string {
 /**
  * The folders to watch for a scan:
  *
- * - the scan root, honouring the scan's skip list and depth limit; inside a `.git` folder
+ * - each scan root, honouring the scan's skip list and depth limit; inside a `.git` folder
  *   nothing counts for it (the repository watches carry those signals);
  * - each common dir, without its object store and other noisy folders;
  * - each checkout's git dir when it lies outside its common dir. A main checkout's git dir
  *   is its common dir and a linked worktree's is `<common>/worktrees/<name>`, so normally
  *   the common dir's watch carries their `HEAD`, `index` and `logs/HEAD` already;
- * - each working tree, without `.git` and skip-listed folders, one stream per checkout.
+ * - each working tree, without `.git` and skip-listed folders, one stream per checkout. A
+ *   checkout outside every root needs nothing more: its git dir lies in its repository's
+ *   common dir, which is watched already.
  */
 export function watchTargets(scan: WatchedScan): WatchTarget[] {
   const targets = new Map<string, WatchTarget>();
@@ -78,15 +82,17 @@ export function watchTargets(scan: WatchedScan): WatchTarget[] {
     const key = targetKey(target);
     if (!targets.has(key)) targets.set(key, target);
   };
-  add({
-    kind: "root",
-    path: scan.scanRoot,
-    ignorePaths: [],
-    ignoreNames: SKIPPED,
-    ignoreContentsOf: [".git"],
-    // A folder at the depth limit is read, so a `.git` inside it still makes a checkout.
-    maxDepth: MAX_SCAN_DEPTH + 1,
-  });
+  for (const scanRoot of scan.scanRoots) {
+    add({
+      kind: "root",
+      path: scanRoot,
+      ignorePaths: [],
+      ignoreNames: SKIPPED,
+      ignoreContentsOf: [".git"],
+      // A folder at the depth limit is read, so a `.git` inside it still makes a checkout.
+      maxDepth: MAX_SCAN_DEPTH + 1,
+    });
+  }
   const commonDirs = new Set(scan.checkouts.map((checkout) => checkout.commonDir));
   for (const commonDir of [...commonDirs].sort()) {
     add({
