@@ -151,3 +151,8 @@ export function storeTime(date: Date = new Date()): string {
 export function laterTime(a: string, b: string): string {
   return a >= b ? a : b;
 }
+
+/** The earlier of two store times. */
+export function earlierTime(a: string, b: string): string {
+  return a <= b ? a : b;
+}
