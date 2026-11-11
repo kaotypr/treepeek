@@ -132,7 +132,7 @@ describe("createCoreService", () => {
     service.attachSession(1, adapt(port1));
     const renderer = client(port2);
 
-    expect(await renderer.call("session.open", { scanRoot: fx.root })).toMatchObject({
+    expect(await renderer.call("session.open", { scanRoots: [fx.root] })).toMatchObject({
       ok: true,
     });
     expect(await renderer.call("scan.start", { requestId: "scan-1" })).toMatchObject({
@@ -210,7 +210,7 @@ describe("createCoreService", () => {
 
     // The first window's port closing late must not close the session that replaced it.
     older.close();
-    expect(await renderer.call("session.open", { scanRoot: fx.root })).toMatchObject({
+    expect(await renderer.call("session.open", { scanRoots: [fx.root] })).toMatchObject({
       ok: true,
     });
 

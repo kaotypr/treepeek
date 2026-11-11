@@ -32,7 +32,7 @@ import {
  * Bumped whenever a channel's shape changes. Main, the core service and every window come
  * from one build, so a mismatch means something is badly wrong; it is still checked.
  */
-export const CONTRACT_VERSION = 10;
+export const CONTRACT_VERSION = 11;
 
 const Empty = v.strictObject({});
 
