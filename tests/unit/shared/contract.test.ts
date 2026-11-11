@@ -17,6 +17,7 @@ import type {
   FolderNode,
   Repository,
   ScanProblem,
+  ScanRoot,
   TimelineEntry,
 } from "../../../src/shared/domain/scan";
 import {
@@ -38,6 +39,7 @@ import {
   type GitStateSchema,
   IPC_ERROR_CODES,
   MAX_MARK_PATHS,
+  MAX_SCAN_ROOTS,
   MAX_STATUS_CHECKOUTS,
   MAX_VALIDATE_PATHS,
   MainToCoreSchema,
@@ -50,6 +52,7 @@ import {
   type Result,
   type ReviewStatusSchema,
   type ScanProblemSchema,
+  type ScanRootSchema,
   type TimelineEntrySchema,
 } from "../../../src/shared/ipc";
 import { createLogger, type Logger } from "../../../src/shared/log";
@@ -249,7 +252,7 @@ describe("contract", () => {
         state: { found: false, problem: "xcodeMissing" },
       }).success,
     ).toBe(true);
-    expect(CONTRACT_VERSION).toBe(9);
+    expect(CONTRACT_VERSION).toBe(10);
   });
 
   it("carries paths.validate between main and core, bounded", () => {
@@ -285,6 +288,7 @@ describe("contract", () => {
     expectTypeOf<v.InferOutput<typeof CheckoutSchema>>().toExtend<Checkout>();
     expectTypeOf<Checkout>().toExtend<v.InferOutput<typeof CheckoutSchema>>();
     expectTypeOf<v.InferOutput<typeof FolderNodeSchema>>().toEqualTypeOf<FolderNode>();
+    expectTypeOf<v.InferOutput<typeof ScanRootSchema>>().toEqualTypeOf<ScanRoot>();
     expectTypeOf<v.InferOutput<typeof RepositorySchema>>().toEqualTypeOf<Repository>();
     expectTypeOf<v.InferOutput<typeof TimelineEntrySchema>>().toEqualTypeOf<TimelineEntry>();
     expectTypeOf<v.InferOutput<typeof ScanProblemSchema>>().toEqualTypeOf<ScanProblem>();
@@ -493,10 +497,21 @@ describe("contract", () => {
   });
 
   it("validates the session, scan and start-override requests strictly", () => {
-    expect(parseRequest(coreCalls["session.open"], { scanRoot: "/x" }).ok).toBe(true);
-    expect(parseRequest(coreCalls["session.open"], { scanRoot: "" }).ok).toBe(false);
-    expect(parseRequest(coreCalls["session.open"], { scanRoot: "/x", extra: 1 }).ok).toBe(false);
-    expect(parseRequest(coreCalls["session.open"], { scanRoot: "/".repeat(4097) }).ok).toBe(false);
+    const open = coreCalls["session.open"];
+    expect(parseRequest(open, { scanRoots: ["/x"] }).ok).toBe(true);
+    expect(parseRequest(open, { scanRoots: ["/x", "/y"], worktrees: "all" }).ok).toBe(true);
+    expect(parseRequest(open, { scanRoots: ["/x"], worktrees: "inside" }).ok).toBe(true);
+    expect(parseRequest(open, { scanRoots: ["/x"], worktrees: "walked" }).ok).toBe(true);
+    expect(parseRequest(open, { scanRoots: ["/x"], worktrees: "none" }).ok).toBe(false);
+    expect(parseRequest(open, { scanRoots: [] }).ok).toBe(false);
+    expect(parseRequest(open, { scanRoots: [""] }).ok).toBe(false);
+    expect(parseRequest(open, { scanRoots: ["/".repeat(4097)] }).ok).toBe(false);
+    const roots = Array.from({ length: MAX_SCAN_ROOTS }, (_, index) => `/r${index}`);
+    expect(parseRequest(open, { scanRoots: roots }).ok).toBe(true);
+    expect(parseRequest(open, { scanRoots: [...roots, "/one-more"] }).ok).toBe(false);
+    expect(parseRequest(open, { scanRoots: ["/x"], extra: 1 }).ok).toBe(false);
+    // The single root the contract took before it took several.
+    expect(parseRequest(open, { scanRoot: "/x" }).ok).toBe(false);
     expect(parseRequest(coreCalls["scan.start"], { requestId: "r" }).ok).toBe(true);
     expect(parseRequest(coreCalls["scan.start"], { requestId: "" }).ok).toBe(false);
     const override = coreCalls["start.override"];
@@ -511,6 +526,8 @@ describe("contract", () => {
     const checkout: Checkout = {
       path: "/r/app",
       kind: "main",
+      location: "inside",
+      locked: false,
       branch: null,
       head: null,
       upstream: null,
@@ -529,6 +546,12 @@ describe("contract", () => {
     ).toBe(true);
     expect(v.safeParse(payload, { ...checkout, start: { commit: "x" } }).success).toBe(false);
     expect(v.safeParse(payload, { ...checkout, kind: "other" }).success).toBe(false);
+    expect(v.safeParse(payload, { ...checkout, location: "outside", locked: true }).success).toBe(
+      true,
+    );
+    expect(v.safeParse(payload, { ...checkout, location: "elsewhere" }).success).toBe(false);
+    const { location: _location, ...withoutLocation } = checkout;
+    expect(v.safeParse(payload, withoutLocation).success).toBe(false);
     const done = coreEvents["scan.done"].payload;
     expect(
       v.safeParse(done, { timeline: [], repositories: [], durationMs: 3, problems: [] }).success,
@@ -543,6 +566,18 @@ describe("contract", () => {
     ).toBe(false);
     expect(coreEvents["scan.checkout"].sticky).toBe(false);
     expect(coreEvents["scan.done"].sticky).toBe(false);
+  });
+
+  it("carries one folder tree per scan root", () => {
+    const folders = [{ name: "r", relativePath: "", depth: 0, parent: null, checkoutPath: null }];
+    const roots: ScanRoot[] = [{ path: "/r", folders }];
+    const started = coreCalls["scan.start"].response;
+    expect(v.safeParse(started, { roots, depthLimit: 7 }).success).toBe(true);
+    expect(v.safeParse(started, { scanRoot: "/r", folders, depthLimit: 7 }).success).toBe(false);
+    const timeline = coreEvents["refresh.timeline"].payload;
+    const rest = { timeline: [], repositories: [], problems: [] };
+    expect(v.safeParse(timeline, { ...rest, roots }).success).toBe(true);
+    expect(v.safeParse(timeline, { ...rest, folders }).success).toBe(false);
   });
 
   it("marks state-like events sticky", () => {
