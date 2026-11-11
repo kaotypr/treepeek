@@ -7,10 +7,9 @@ import {
 
 /** What the timeline needs of a checkout. */
 export interface TimelineInput {
+  /** Real absolute path; breaks ties. */
   checkoutPath: string;
   commonDir: string;
-  /** Path relative to the scan root; breaks ties. */
-  relativePath: string;
   start: Start;
   head: string | null;
 }
@@ -23,9 +22,10 @@ export type AncestryCheck = (
 ) => Promise<boolean>;
 
 /**
- * Orders every checkout of the scan (domain model, Timeline):
+ * Orders every checkout of the scan, across all its roots (domain model, Timeline):
  *
- * 1. by `start.observedAt`, oldest first; unknown starts last; ties by relative path;
+ * 1. by `start.observedAt`, oldest first; unknown starts last; ties by path (within one
+ *    scan root, the same order as by the path relative to it);
  * 2. numbered `1…n` across the whole scan;
  * 3. each checkout's predecessor is the previous checkout of the same repository;
  * 4. the relation is `first` without a predecessor, `after` when the predecessor's current
@@ -73,5 +73,5 @@ function compareInputs(a: TimelineInput, b: TimelineInput): number {
   const aTime = isKnownStart(a.start) ? Date.parse(a.start.observedAt) : Number.POSITIVE_INFINITY;
   const bTime = isKnownStart(b.start) ? Date.parse(b.start.observedAt) : Number.POSITIVE_INFINITY;
   if (aTime !== bTime) return aTime < bTime ? -1 : 1;
-  return a.relativePath < b.relativePath ? -1 : a.relativePath > b.relativePath ? 1 : 0;
+  return a.checkoutPath < b.checkoutPath ? -1 : a.checkoutPath > b.checkoutPath ? 1 : 0;
 }

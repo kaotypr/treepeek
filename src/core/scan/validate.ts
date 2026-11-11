@@ -1,24 +1,25 @@
 import { realpath } from "node:fs/promises";
-import { relative } from "node:path";
-import type { CheckoutKind, ScanProblem } from "../../shared/domain/scan";
+import type { CheckoutKind, CheckoutLocation, ScanProblem } from "../../shared/domain/scan";
 import type { RepositoryResources } from "../cache/shared-state";
 import { revalidate, worktreeListStamp } from "../cache/stamps";
 import { asIpcError, GitError } from "../git/errors";
 import { parseIdentity } from "../git/parse/rev-parse";
 import { parseWorktreeList, type WorktreeEntry } from "../git/parse/worktree-list";
+import { isWithin } from "../sessions/path-rule";
 import { type ScanContext, scanGit } from "./context";
 
 /** A folder that passed all three checkout tests (domain model, Checkout). */
 export interface ValidCandidate {
-  /** Real absolute path; Git's top level and the scanned folder. */
+  /** Real absolute path; Git's top level. */
   path: string;
-  /** Path relative to the scan root, `/`-separated. */
-  relativePath: string;
   /** Real path of the checkout's own git dir. */
   gitDir: string;
   /** Real path of the repository's common dir. */
   commonDir: string;
   kind: CheckoutKind;
+  location: CheckoutLocation;
+  /** Git's worktree list says it is locked. */
+  locked: boolean;
   repo: RepositoryResources;
 }
 
@@ -47,6 +48,8 @@ interface Identified {
  * 2. Git's worktree list, once per common dir, is the authority: a folder it does not list
  *    (a copied `.git` file) is dropped. The list is cached until the repository's
  *    `worktrees/` folder changes, so a worktree added since the last scan is found.
+ *
+ * The walk found every candidate, so each one lies inside a scan root.
  */
 export async function validateCandidates(
   candidates: readonly string[],
@@ -72,14 +75,18 @@ export async function validateCandidates(
     [...byRepository].map(async ([commonDir, items]) => {
       const repo = ctx.repository(commonDir);
       try {
-        const listed = await listedCheckouts(repo, ctx, worktreeLists);
-        listedByRepository.set(commonDir, listed);
+        const entries = await worktreeList(repo, ctx.signal);
+        worktreeLists.set(commonDir, entries);
+        const listed = await listedEntries(entries);
+        listedByRepository.set(commonDir, new Set(listed.keys()));
         for (const item of items) {
-          if (!listed.has(item.path)) continue;
+          const entry = listed.get(item.path);
+          if (!entry) continue;
           accepted.set(item.path, {
             ...item,
-            relativePath: relative(ctx.scanRoot, item.path),
             kind: item.gitDir === commonDir ? "main" : "linked",
+            location: "inside",
+            locked: entry.locked,
             repo,
           });
         }
@@ -138,15 +145,96 @@ async function identify(
   }
 }
 
-/** Real paths of the checkouts Git lists for the repository. */
-async function listedCheckouts(
-  repo: RepositoryResources,
+/** A checkout a repository's worktree list holds that the walk did not find. */
+export interface UnwalkedCheckout {
+  /** Real absolute path. */
+  path: string;
+  location: CheckoutLocation;
+  locked: boolean;
+}
+
+/**
+ * The checkouts of a repository's worktree list that a scan lists besides the walked ones:
+ * not bare, not prunable (its folder is gone), with a folder that exists, and not among
+ * `walked` (every candidate the walk found, which validation has already judged). Each is
+ * `inside` when it lies under a scan root the walk did not reach into (inside another
+ * checkout, say) and `outside` otherwise; the session's choice leaves out the outside ones
+ * (`inside`) or all of them (`walked`).
+ */
+export async function unwalkedCheckouts(
+  entries: readonly WorktreeEntry[],
+  walked: ReadonlySet<string>,
+  ctx: Pick<ScanContext, "scanRoots" | "worktrees">,
+): Promise<UnwalkedCheckout[]> {
+  if (ctx.worktrees === "walked") return [];
+  const found = new Map<string, UnwalkedCheckout>();
+  const resolved = await Promise.all(
+    entries.map(async (entry) =>
+      entry.bare || entry.prunable
+        ? null
+        : { entry, path: await realpath(entry.path).catch(() => null) },
+    ),
+  );
+  for (const item of resolved) {
+    if (!item?.path || walked.has(item.path) || found.has(item.path)) continue;
+    const location = locationOf(item.path, ctx.scanRoots);
+    if (location === "outside" && ctx.worktrees === "inside") continue;
+    found.set(item.path, { path: item.path, location, locked: item.entry.locked });
+  }
+  return [...found.values()];
+}
+
+/**
+ * Turns the unwalked checkouts of repositories the walk found (by common dir, with their
+ * worktree lists) into valid candidates. Each goes through the walk's own `rev-parse`
+ * check and must report the same common dir; a folder Git refuses becomes a problem, as a
+ * walked one would.
+ */
+export async function deriveCheckouts(
+  lists: ReadonlyMap<string, readonly WorktreeEntry[]>,
+  walked: ReadonlySet<string>,
   ctx: ScanContext,
-  lists: Map<string, readonly WorktreeEntry[]>,
-): Promise<Set<string>> {
-  const entries = await worktreeList(repo, ctx.signal);
-  lists.set(repo.commonDir, entries);
-  return listedPaths(entries);
+): Promise<{ valid: ValidCandidate[]; problems: ScanProblem[] }> {
+  const problems: ScanProblem[] = [];
+  const derived = await Promise.all(
+    [...lists].map(async ([commonDir, entries]) => {
+      const unwalked = await unwalkedCheckouts(entries, walked, ctx);
+      return Promise.all(unwalked.map((item) => validateUnwalked(item, commonDir, ctx, problems)));
+    }),
+  );
+  const valid = derived.flat().filter((item): item is ValidCandidate => item !== null);
+  valid.sort((a, b) => compareText(a.path, b.path));
+  return { valid, problems };
+}
+
+/** One unwalked checkout as a valid candidate of `commonDir`'s repository, or `null`. */
+export async function validateUnwalked(
+  item: UnwalkedCheckout,
+  commonDir: string,
+  ctx: ScanContext,
+  problems: ScanProblem[],
+): Promise<ValidCandidate | null> {
+  const identified = await identify(item.path, ctx, problems);
+  if (!identified) return null;
+  if (identified.commonDir !== commonDir) {
+    ctx.log.warn("a listed worktree belongs to another repository", {
+      path: item.path,
+      commonDir,
+    });
+    return null;
+  }
+  return {
+    ...identified,
+    kind: identified.gitDir === commonDir ? "main" : "linked",
+    location: item.location,
+    locked: item.locked,
+    repo: ctx.repository(commonDir),
+  };
+}
+
+/** `inside` when `path` is a scan root or lies under one. */
+export function locationOf(path: string, scanRoots: readonly string[]): CheckoutLocation {
+  return scanRoots.some((root) => isWithin(path, root)) ? "inside" : "outside";
 }
 
 /**
@@ -176,12 +264,28 @@ export async function worktreeList(
 
 /** Real paths of the (non-bare) checkouts in a worktree list; a path that is gone is left out. */
 export async function listedPaths(entries: readonly WorktreeEntry[]): Promise<Set<string>> {
+  return new Set((await listedEntries(entries)).keys());
+}
+
+/** The (non-bare) entries of a worktree list by real path; a path that is gone is left out. */
+async function listedEntries(
+  entries: readonly WorktreeEntry[],
+): Promise<Map<string, WorktreeEntry>> {
   const paths = await Promise.all(
     entries.map((entry) =>
       entry.bare ? Promise.resolve(null) : realpath(entry.path).catch(() => null),
     ),
   );
-  return new Set(paths.filter((path): path is string => path !== null));
+  const listed = new Map<string, WorktreeEntry>();
+  for (const [index, path] of paths.entries()) {
+    const entry = entries[index];
+    if (path !== null && entry && !listed.has(path)) listed.set(path, entry);
+  }
+  return listed;
+}
+
+function compareText(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
 }
 
 function cancelled(): GitError {

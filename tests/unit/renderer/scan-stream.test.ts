@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { keys } from "../../../src/renderer/data/keys";
 import type { ScanData } from "../../../src/renderer/data/scan-model";
 import { startScan } from "../../../src/renderer/data/scan-stream";
-import type { Checkout } from "../../../src/shared/domain/scan";
+import type { Checkout, FolderNode } from "../../../src/shared/domain/scan";
 import type { Result } from "../../../src/shared/ipc/result";
 
 type Listener = (payload: unknown) => void;
@@ -13,6 +13,7 @@ function fakeApi() {
   const listeners = new Map<string, Set<Listener>>();
   const pendingStarts: Array<(result: Result<unknown>) => void> = [];
   const cancelled: string[] = [];
+  const opened: unknown[] = [];
   const api = {
     on(event: string, listener: Listener) {
       let set = listeners.get(event);
@@ -25,7 +26,10 @@ function fakeApi() {
     },
     core: {
       session: {
-        open: async () => ({ ok: true, value: { sessionId: "s", gitVersion: "2.50.0" } }),
+        open: async (request: unknown) => {
+          opened.push(request);
+          return { ok: true, value: { sessionId: "s", gitVersion: "2.50.0" } };
+        },
       },
       scan: {
         start: () => new Promise<Result<unknown>>((resolve) => pendingStarts.push(resolve)),
@@ -41,15 +45,19 @@ function fakeApi() {
   return {
     api,
     cancelled,
+    opened,
     emit(event: string, payload: unknown) {
       for (const listener of listeners.get(event) ?? []) listener(payload);
     },
-    /** Answers the oldest unanswered `scan.start`. */
-    async answerStart() {
+    /**
+     * Answers the oldest unanswered `scan.start` with one root: the window's folder as its
+     * real path, which need not be the path the window was given.
+     */
+    async answerStart(folders: FolderNode[] = []) {
       await vi.waitFor(() => expect(pendingStarts.length).toBeGreaterThan(0));
       pendingStarts.shift()?.({
         ok: true,
-        value: { scanRoot: "/w", folders: [], depthLimit: 7 },
+        value: { roots: [{ path: "/private/w", folders }], depthLimit: 7 },
       });
       await Promise.resolve();
       await Promise.resolve();
@@ -61,6 +69,8 @@ function checkout(path: string): Checkout {
   return {
     path,
     kind: "main",
+    location: "inside",
+    locked: false,
     branch: "main",
     head: "a",
     upstream: null,
@@ -98,6 +108,22 @@ afterEach(() => {
 });
 
 describe("startScan", () => {
+  it("opens its one folder for the walked checkouts, and shows that root's folder tree", async () => {
+    const stream = startScan(client, "/w");
+    const root: FolderNode = {
+      name: "w",
+      relativePath: "",
+      depth: 0,
+      parent: null,
+      checkoutPath: null,
+    };
+    await fake.answerStart([root]);
+    expect(fake.opened).toEqual([{ scanRoots: ["/w"], worktrees: "walked" }]);
+    expect(read()?.folders).toEqual([root]);
+    expect(read()?.depthLimit).toBe(7);
+    stream.stop();
+  });
+
   it("writes checkouts as they stream, then the timeline when the scan is done", async () => {
     const stream = startScan(client, "/w");
     await fake.answerStart();

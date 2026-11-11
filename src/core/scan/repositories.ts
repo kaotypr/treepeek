@@ -9,8 +9,9 @@ export interface RepositoryMember {
 }
 
 /**
- * Groups checkouts into repositories, keeping the given order (the timeline's) for both the
- * repositories (by their first checkout) and the checkouts within each.
+ * Groups checkouts into repositories by common dir, whichever scan root (or none) each was
+ * found from, keeping the given order (the timeline's) for both the repositories (by their
+ * first checkout) and the checkouts within each.
  */
 export function buildRepositories(
   checkouts: readonly RepositoryMember[],

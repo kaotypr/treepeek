@@ -12,7 +12,6 @@ function input(
   return {
     checkoutPath: `/root/${path}`,
     commonDir,
-    relativePath: path,
     start: start
       ? { commit: start.commit, observedAt: at(start.minute), source: "reflog" }
       : { unknown: true },
@@ -21,7 +20,7 @@ function input(
 }
 
 describe("buildTimeline", () => {
-  it("orders by start, unknown starts last, ties by relative path, and numbers across the scan", async () => {
+  it("orders by start, unknown starts last, ties by path, and numbers across the scan", async () => {
     const timeline = await buildTimeline(
       [
         input("z-unknown", "/r1", null),

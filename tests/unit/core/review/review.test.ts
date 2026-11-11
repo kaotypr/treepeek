@@ -44,7 +44,7 @@ async function open(root: string, existing?: Harness): Promise<{ client: Client;
   if (!existing) harnesses.push(h);
   windows += 1;
   const { client } = h.open(windows);
-  await client.call("session.open", { scanRoot: root });
+  await client.call("session.open", { scanRoots: [root] });
   await rescan(client);
   return { client, h };
 }
@@ -365,9 +365,10 @@ describe("review status and marks", () => {
       [app.path, one.path, two.path].sort(),
     );
 
-    // A second window on a folder that overlaps the first one's.
+    // A second window on a folder that overlaps the first one's. It lists the other two
+    // checkouts too, as outside worktrees, and computes the status of all three.
     const second = await open(fx.path("one"), first.h);
-    await second.client.waitForEvent("review.changed", 1);
+    await second.client.waitForEvent("review.changed", 3);
     const heard = second.client.events("review.changed").length;
     value(await mark(first.client, one, ["1.txt"]));
     await second.client.waitForEvent("review.changed", heard + 1);
@@ -460,7 +461,7 @@ describe("snapshots and since you viewed", () => {
 
     pruneAfterScan(
       stored.store,
-      { scanRoot: fx.root, listedCheckouts: new Map() },
+      { roots: [{ path: fx.root, folders: [] }], worktrees: "all", listedCheckouts: new Map() },
       { capBytes: 0 },
     );
     expect((await status(client, feature)).files[0]).toMatchObject({

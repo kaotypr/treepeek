@@ -2,6 +2,7 @@ import * as v from "valibot";
 import { CHECKABLE_COMMAND_IDS, COMMAND_IDS } from "../commands";
 import { COMPARISON_KINDS, LISTABLE_COMPARISON_KINDS } from "../domain/compare";
 import { GIT_PROBLEMS } from "../domain/git";
+import { WORKTREE_CHOICES } from "../domain/scan";
 import {
   AppearanceSchema,
   BundleIdSchema,
@@ -16,7 +17,6 @@ import {
   ComparisonResultSchema,
   FileCategorySchema,
   FileDiffSchema,
-  FolderNodeSchema,
   PathSchema,
   PreviousMarkSchema,
   RefreshPauseSchema,
@@ -24,6 +24,7 @@ import {
   RepositorySchema,
   ReviewStatusSchema,
   ScanProblemSchema,
+  ScanRootSchema,
   TimelineEntrySchema,
 } from "./domain-schemas";
 
@@ -31,11 +32,14 @@ import {
  * Bumped whenever a channel's shape changes. Main, the core service and every window come
  * from one build, so a mismatch means something is badly wrong; it is still checked.
  */
-export const CONTRACT_VERSION = 9;
+export const CONTRACT_VERSION = 10;
 
 const Empty = v.strictObject({});
 
 const RequestId = v.pipe(v.string(), v.minLength(1), v.maxLength(128));
+
+/** Folders one `session.open` may scan. */
+export const MAX_SCAN_ROOTS = 64;
 
 /** Checkouts one `review.status` call may ask about. */
 export const MAX_STATUS_CHECKOUTS = 1_000;
@@ -354,27 +358,34 @@ export const coreCalls = {
     response: v.object({}),
   }),
   /**
-   * Sets the folder this window scans: an absolute path to an existing folder, kept as its
-   * real path. Opening again replaces the scan root and stops a scan in progress. Fails
-   * `gitNotFound` or `gitTooOld` while no usable git is found.
+   * Sets the folders this session scans as one project: absolute paths to existing folders,
+   * each kept as its real path. Duplicates are scanned once, and a root inside another is
+   * left to the outer one's walk. `worktrees` says which checkouts a scan lists besides the
+   * walked ones (`WorktreeChoice`, `all` by default). Opening again with other roots or
+   * another choice forgets the last scan; either way a scan in progress stops. A root that
+   * cannot be scanned fails `invalidRequest` with `detail.scanRoot` naming why and
+   * `detail.path` naming the root. Fails `gitNotFound` or `gitTooOld` while no usable git
+   * is found.
    */
   "session.open": defineCall({
     name: "session.open",
-    request: v.strictObject({ scanRoot: PathSchema }),
+    request: v.strictObject({
+      scanRoots: v.pipe(v.array(PathSchema), v.minLength(1), v.maxLength(MAX_SCAN_ROOTS)),
+      worktrees: v.exactOptional(v.picklist(WORKTREE_CHOICES)),
+    }),
     response: v.object({ sessionId: v.string(), gitVersion: v.string() }),
   }),
   /**
-   * Scans the session's root. Answers with the folder tree as soon as the walk finishes;
-   * then each checkout arrives as `scan.checkout` the moment it resolves, and `scan.done`
-   * ends the scan. `request.cancel` with the same `requestId`, a newer `scan.start`, or
-   * the window closing stops it and its git processes.
+   * Scans the session's roots. Answers with each root's folder tree as soon as the walks
+   * finish; then each checkout arrives as `scan.checkout` the moment it resolves, and
+   * `scan.done` ends the scan. `request.cancel` with the same `requestId`, a newer
+   * `scan.start`, or the window closing stops it and its git processes.
    */
   "scan.start": defineCall({
     name: "scan.start",
     request: v.strictObject({ requestId: RequestId }),
     response: v.object({
-      scanRoot: v.string(),
-      folders: v.array(FolderNodeSchema),
+      roots: v.array(ScanRootSchema),
       depthLimit: v.number(),
     }),
   }),
@@ -586,15 +597,15 @@ export const coreEvents = {
   /**
    * Live refresh: the timeline changed (a start or a HEAD moved its order or relations) or
    * the set of checkouts did (a worktree added or removed): the whole timeline, the
-   * repositories, the folder tree and the folders that could not be read, as `scan.done`
-   * carries them.
+   * repositories, each root's folder tree (as `scan.start` answers them) and the folders
+   * that could not be read, as `scan.done` carries them.
    */
   "refresh.timeline": defineEvent({
     name: "refresh.timeline",
     payload: v.object({
       timeline: v.array(TimelineEntrySchema),
       repositories: v.array(RepositorySchema),
-      folders: v.array(FolderNodeSchema),
+      roots: v.array(ScanRootSchema),
       problems: v.array(ScanProblemSchema),
     }),
   }),

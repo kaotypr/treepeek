@@ -61,7 +61,7 @@ beforeAll(() => {
   wtA = repo.worktree("wt-a", { from: "main" });
   wtB = repo.worktree("wt-b", { from: "main" });
   scan = {
-    scanRoot: fx.root,
+    scanRoots: [fx.root],
     checkouts: [
       { path: repo.path, gitDir: repo.commonDir, commonDir: repo.commonDir },
       { path: wtA.path, gitDir: join(repo.commonDir, "worktrees/wt-a"), commonDir: repo.commonDir },
@@ -220,6 +220,42 @@ describe("WatchManager events", () => {
       { scope: "root", scanRoot: fx.root, kinds: ["structure"] },
       { scope: "repository", commonDir: repo.commonDir, kinds: ["structure"], refs: [] },
     ]);
+  });
+
+  it("tells which root a folder appeared in, and an outside checkout's edits apart", async () => {
+    const backend = new FakeBackend("fsevents");
+    const made = manager([backend]);
+    const other = fx.outsidePath("second-root");
+    const outsideWt = fx.outsidePath("agents/wt-out");
+    vi.useRealTimers();
+    await made.watch.watchScan(1, {
+      scanRoots: [fx.root, other],
+      checkouts: [
+        ...scan.checkouts,
+        {
+          path: outsideWt,
+          gitDir: join(repo.commonDir, "worktrees/wt-out"),
+          commonDir: repo.commonDir,
+        },
+      ],
+    });
+    vi.useFakeTimers();
+    expect(backend.open.has(other)).toBe(true);
+    expect(backend.open.has(outsideWt)).toBe(true);
+    backend.emit(other, { path: join(other, "new-wt"), type: "create" });
+    backend.emit(outsideWt, { path: join(outsideWt, "a.txt"), type: "update" });
+    backend.emit(repo.commonDir, {
+      path: join(repo.commonDir, "worktrees/wt-out/HEAD"),
+      type: "update",
+    });
+    vi.advanceTimersByTime(400);
+    expect(made.changes).toHaveLength(2);
+    expect(made.changes).toContainEqual({ scope: "root", scanRoot: other, kinds: ["structure"] });
+    expect(made.changes).toContainEqual({
+      scope: "checkout",
+      checkoutPath: outsideWt,
+      kinds: ["workingTree", "head"],
+    });
   });
 
   it("pauses a checkout's working-tree refresh in a storm, keeping its git-dir signals", async () => {

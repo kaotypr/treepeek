@@ -1,12 +1,12 @@
 import { join } from "node:path";
+import type { FolderNode, WorktreeChoice } from "../../shared/domain/scan";
 import type { Logger } from "../../shared/log";
 import type { CheckoutResources, CoreState, RepositoryResources } from "../cache/shared-state";
 import { GitError } from "../git/errors";
 import type { CoreRpc } from "../rpc";
 import type { ScanContext } from "../scan/context";
 import { refreshStart, type ScannedCheckout } from "../scan/resolve-checkout";
-import { resolveScan, type ScanResult, walkScanRoot } from "../scan/scan";
-import type { WalkResult } from "../scan/walk";
+import { type RootWalk, resolveScan, type ScanResult, walkScanRoots } from "../scan/scan";
 import type { ReviewStore } from "../store/review-store";
 import type { LiveRefresh } from "../watch/live";
 import { isWithin, realPathOf } from "./path-rule";
@@ -24,9 +24,12 @@ export interface SessionServices {
 
 /** The paths one scan produced, for the path rule. */
 interface ScanView {
-  /** Real absolute paths of every folder the walk listed, the scan root included. */
+  /** Real absolute paths of every folder the walks listed, every scan root included. */
   folders: ReadonlySet<string>;
-  /** Every checkout resolved so far, by real path. */
+  /**
+   * Every checkout resolved so far, by real path: the walked ones and those the worktree
+   * lists hold elsewhere, as the session's `WorktreeChoice` lets in.
+   */
   readonly checkouts: Map<string, ScannedCheckout>;
 }
 
@@ -34,25 +37,25 @@ interface ScanView {
 export interface ScanRun {
   /** Aborted by the call's own signal, a newer scan, `session.open` or closing. */
   readonly signal: AbortSignal;
-  /** Step 1. Throws a `cancelled` `GitError` once the run is stopped. */
-  walk(): Promise<WalkResult>;
+  /** Step 1, for every root. Throws a `cancelled` `GitError` once the run is stopped. */
+  walk(): Promise<RootWalk[]>;
   /**
    * Steps 2 to 5, handing each checkout to `onCheckout` as it resolves. Resolves `null`
    * when the run was stopped or replaced before it finished; the session then keeps its
    * previous scan.
    */
   resolve(
-    walked: WalkResult,
+    walked: readonly RootWalk[],
     onCheckout: (checkout: ScannedCheckout) => void,
   ): Promise<ScanResult | null>;
 }
 
 /**
  * A window's session in the core service (architecture design, "Why one shared core
- * service"): its scan root, its scans, and the shared repository resources those scans
- * use. Resources are acquired from `CoreState` with the window id as the holder and
- * released when they leave the session's scan, when the scan root changes, and when the
- * session closes.
+ * service"): its scan roots and worktree choice, its scans, and the shared repository
+ * resources those scans use. Resources are acquired from `CoreState` with the window id as
+ * the holder and released when they leave the session's scan, when the roots or the choice
+ * change, and when the session closes.
  */
 export class Session {
   /** The window id; also the holder of everything the session acquires. */
@@ -60,7 +63,8 @@ export class Session {
   readonly rpc: CoreRpc;
   readonly log: Logger;
   readonly #services: SessionServices;
-  #scanRoot: string | null = null;
+  #scanRoots: readonly string[] | null = null;
+  #worktrees: WorktreeChoice = "all";
   #opened = 0;
   #lastScan: ScanResult | null = null;
   #last: ScanView | null = null;
@@ -81,9 +85,17 @@ export class Session {
     this.log = log;
   }
 
-  /** The real path the window scans, or `null` before `session.open`. */
-  get scanRoot(): string | null {
-    return this.#scanRoot;
+  /**
+   * The real paths the session scans (each once, none inside another), or `null` before
+   * `session.open`.
+   */
+  get scanRoots(): readonly string[] | null {
+    return this.#scanRoots;
+  }
+
+  /** Which checkouts the session's scans list besides the walked ones. */
+  get worktrees(): WorktreeChoice {
+    return this.#worktrees;
   }
 
   /** The last scan that finished, or `null`. */
@@ -101,19 +113,20 @@ export class Session {
   }
 
   /**
-   * Sets the scan root (a real path to a folder) and returns a new session id. A scan in
-   * progress stops. A different root also forgets the previous scans and releases what
-   * they held.
+   * Sets the scan roots (real paths to folders, each once, none inside another) and the
+   * worktree choice, and returns a new session id. A scan in progress stops. Other roots,
+   * or another choice, also forget the previous scans and release what they held.
    */
-  open(scanRoot: string): string {
+  open(scanRoots: readonly string[], worktrees: WorktreeChoice): string {
     this.#assertOpen();
     this.#stopScan();
     this.#stopBackground();
     this.#stopRefresh();
-    if (scanRoot !== this.#scanRoot) {
+    if (!sameRoots(scanRoots, this.#scanRoots) || worktrees !== this.#worktrees) {
       this.#services.live?.release(this);
       this.#releaseAll();
-      this.#scanRoot = scanRoot;
+      this.#scanRoots = [...scanRoots];
+      this.#worktrees = worktrees;
       this.#lastScan = null;
       this.#last = null;
       this.#current = null;
@@ -123,13 +136,14 @@ export class Session {
   }
 
   /**
-   * Starts a scan of the scan root, stopping the one in progress. `callSignal` is the
+   * Starts a scan of the scan roots, stopping the one in progress. `callSignal` is the
    * signal of the call that asked for it, so cancelling that call stops the scan too.
    */
   startScan(callSignal: AbortSignal): ScanRun {
     this.#assertOpen();
-    const root = this.#scanRoot;
-    if (root === null) throw new GitError("invalidRequest", "The session has no scan root.");
+    if (this.#scanRoots === null) {
+      throw new GitError("invalidRequest", "The session has no scan root.");
+    }
     this.#stopScan();
     this.#stopBackground();
     // A scan reads everything again; a refresh half way would only apply stale results.
@@ -159,9 +173,9 @@ export class Session {
       signal,
       walk: async () => {
         try {
-          const walked = await walkScanRoot(ctx);
+          const walked = await walkScanRoots(ctx);
           if (!isCurrent()) throw cancelled();
-          view.folders = new Set(walked.folders.map((folder) => join(root, folder.relativePath)));
+          view.folders = folderPaths(walked);
           this.#current = view;
           return walked;
         } catch (error) {
@@ -190,14 +204,15 @@ export class Session {
   }
 
   /**
-   * What a scan, or live refresh, of this session's root runs with: repositories it touches
-   * are acquired for the session.
+   * What a scan, or live refresh, of this session's roots runs with: repositories it
+   * touches are acquired for the session.
    */
   scanContext(signal: AbortSignal): ScanContext {
-    const root = this.#scanRoot;
-    if (root === null) throw new GitError("invalidRequest", "The session has no scan root.");
+    const roots = this.#scanRoots;
+    if (roots === null) throw new GitError("invalidRequest", "The session has no scan root.");
     return {
-      scanRoot: root,
+      scanRoots: roots,
+      worktrees: this.#worktrees,
       signal,
       store: this.#services.store(),
       repository: (commonDir) => this.#acquireRepository(commonDir),
@@ -214,8 +229,8 @@ export class Session {
 
   /**
    * A signal for live refresh work on the session's last scan. It aborts when a scan
-   * starts, the scan root changes, or the session closes; until then every call returns
-   * the same one.
+   * starts, the session opens again, or it closes; until then every call returns the same
+   * one.
    */
   refreshSignal(): AbortSignal {
     if (this.#refresh === null) {
@@ -227,10 +242,11 @@ export class Session {
 
   /**
    * The path rule (architecture design, "Security boundary"): after resolving symlinks, the
-   * path is one the session's scan produced (the scan root, a folder of the tree, a
-   * checkout) or lies inside a scanned checkout. A symlink inside a checkout that points
-   * outside it resolves outside, so it fails. Both the last finished scan and the one in
-   * progress count.
+   * path is one the session's scan produced (a scan root, a folder of a root's tree, a
+   * checkout it lists, wherever that lies) or lies inside a listed checkout. A symlink
+   * inside a checkout that points outside it resolves outside, so it fails, and so does a
+   * checkout the session's worktree choice left out. Both the last finished scan and the
+   * one in progress count.
    */
   async isInScan(path: string): Promise<boolean> {
     if (this.#closed) return false;
@@ -257,8 +273,8 @@ export class Session {
 
   /**
    * A signal for background work on the session's scan (review status after a scan). It
-   * aborts when this is called again, a new scan starts, the scan root changes, or the
-   * session closes.
+   * aborts when this is called again, a new scan starts, the session opens again, or it
+   * closes.
    */
   startBackground(): AbortSignal {
     this.#stopBackground();
@@ -348,11 +364,10 @@ export class Session {
    * added or removed, or a new timeline. What leaves the scan is released, as after a scan.
    */
   adoptScan(result: ScanResult): void {
-    if (this.#closed || result.scanRoot !== this.#scanRoot) return;
-    const view: ScanView = {
-      folders: new Set(result.folders.map((folder) => join(result.scanRoot, folder.relativePath))),
-      checkouts: new Map(),
-    };
+    if (this.#closed || result.worktrees !== this.#worktrees) return;
+    const roots = result.roots.map((root) => root.path);
+    if (!sameRoots(roots, this.#scanRoots)) return;
+    const view: ScanView = { folders: folderPaths(result.roots), checkouts: new Map() };
     this.#complete(view, result);
   }
 
@@ -436,4 +451,17 @@ export class Session {
 
 function cancelled(): GitError {
   return new GitError("cancelled", "The session is closed.");
+}
+
+function sameRoots(a: readonly string[], b: readonly string[] | null): boolean {
+  return b !== null && a.length === b.length && a.every((root, index) => root === b[index]);
+}
+
+/** The real path of every folder in the roots' trees, each root included. */
+function folderPaths(
+  roots: readonly { path: string; folders: readonly FolderNode[] }[],
+): Set<string> {
+  return new Set(
+    roots.flatMap((root) => root.folders.map((folder) => join(root.path, folder.relativePath))),
+  );
 }

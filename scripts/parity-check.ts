@@ -417,9 +417,15 @@ async function startCore(root: string): Promise<CoreService> {
   const store = tempStore();
   const created = harness(() => store.store);
   const { client } = created.open(1);
-  unwrap(await client.call("session.open", { scanRoot: root }), "session.open");
+  // The prototype lists what its walk finds, as the desktop does.
+  unwrap(
+    await client.call("session.open", { scanRoots: [root], worktrees: "walked" }),
+    "session.open",
+  );
   const started = unwrap(
-    await client.call<{ folders: FolderNode[] }>("scan.start", { requestId: "parity" }),
+    await client.call<{ roots: { folders: FolderNode[] }[] }>("scan.start", {
+      requestId: "parity",
+    }),
     "scan.start",
   );
   await client.waitForEvent("scan.done", 1, 60_000);
@@ -436,7 +442,7 @@ async function startCore(root: string): Promise<CoreService> {
   return {
     client,
     scan: {
-      folders: started.folders,
+      folders: started.roots[0]?.folders ?? [],
       checkouts: client.events<Checkout>("scan.checkout"),
       timeline: done.timeline,
       repositories: done.repositories,

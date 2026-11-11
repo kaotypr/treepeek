@@ -41,9 +41,16 @@ export const StartSchema = v.union([
   v.object({ unknown: v.literal(true) }),
 ]);
 
+export const ScanRootSchema = v.object({
+  path: v.string(),
+  folders: v.array(FolderNodeSchema),
+});
+
 export const CheckoutSchema = v.object({
   path: v.string(),
   kind: v.picklist(["main", "linked"]),
+  location: v.picklist(["inside", "outside"]),
+  locked: v.boolean(),
   branch: v.nullable(v.string()),
   head: v.nullable(v.string()),
   upstream: v.nullable(v.object({ ref: v.string(), ahead: Count, behind: Count })),

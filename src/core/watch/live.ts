@@ -131,7 +131,7 @@ export class LiveRefresh {
 /** What watching needs of a scan result. */
 export function watchedScanOf(scan: ScanResult): WatchedScan {
   return {
-    scanRoot: scan.scanRoot,
+    scanRoots: scan.roots.map((root) => root.path),
     checkouts: scan.checkouts.map((item) => ({
       path: item.checkout.path,
       gitDir: item.gitDir,

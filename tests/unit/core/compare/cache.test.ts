@@ -18,7 +18,7 @@ beforeAll(async () => {
   repo = fx.repo("cachy").commit({ "a.txt": "a\n" }).commit({ "b.txt": "b\n" });
   created = harness();
   client = created.open(1).client;
-  await client.call("session.open", { scanRoot: fx.root });
+  await client.call("session.open", { scanRoots: [fx.root] });
   await rescan();
 });
 afterAll(() => {
