@@ -22,6 +22,8 @@ function checkout(path: string, overrides: Partial<Checkout> = {}): Checkout {
   return {
     path,
     kind: "linked",
+    location: "inside",
+    locked: false,
     branch: "main",
     head: "a".repeat(40),
     upstream: null,

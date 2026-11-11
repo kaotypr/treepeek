@@ -38,7 +38,8 @@ export async function filesStamp(paths: readonly string[]): Promise<string> {
 
 /**
  * Changes whenever Git's worktree list can change: a worktree added or removed (an entry in
- * `<commonDir>/worktrees/`), or moved or repaired (its `gitdir` file rewritten).
+ * `<commonDir>/worktrees/`), moved or repaired (its `gitdir` file rewritten), or locked or
+ * unlocked (its `locked` file).
  */
 export async function worktreeListStamp(commonDir: string): Promise<string> {
   const folder = join(commonDir, "worktrees");
@@ -49,7 +50,13 @@ export async function worktreeListStamp(commonDir: string): Promise<string> {
     return "-";
   }
   const parts = await Promise.all(
-    names.map(async (name) => `${name}=${await fileStamp(join(folder, name, "gitdir"))}`),
+    names.map(async (name) => {
+      const [gitdir, locked] = await Promise.all([
+        fileStamp(join(folder, name, "gitdir")),
+        fileStamp(join(folder, name, "locked")),
+      ]);
+      return `${name}=${gitdir},${locked}`;
+    }),
   );
   return [await fileStamp(folder), ...parts].join("|");
 }

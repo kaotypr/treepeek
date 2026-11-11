@@ -19,6 +19,8 @@ function checkout(path: string, overrides: Partial<Checkout> = {}): Checkout {
   return {
     path,
     kind: "linked",
+    location: "inside",
+    locked: false,
     branch: "main",
     head: "a".repeat(40),
     upstream: null,
@@ -184,7 +186,9 @@ describe("applyRefreshTimeline and pruneRemoved", () => {
     const next = applyRefreshTimeline(removed, {
       timeline: [entry(1, "/w/app", null), entry(2, "/w/wt-a", "/w/app")],
       repositories: [{ commonDir: COMMON, displayName: "app", checkouts: ["/w/app", "/w/wt-a"] }],
-      folders: [folder(""), folder("app", "/w/app"), folder("wt-a", "/w/wt-a")],
+      roots: [
+        { path: "/w", folders: [folder(""), folder("app", "/w/app"), folder("wt-a", "/w/wt-a")] },
+      ],
       problems: [],
     });
     expect(next.timeline.map((item) => item.checkoutPath)).toEqual([
@@ -219,7 +223,7 @@ describe("applyRefreshTimeline and pruneRemoved", () => {
     const next = applyRefreshTimeline(added, {
       timeline: [...scan().timeline, entry(4, "/w/wt-c", "/w/nested/wt-b")],
       repositories: scan().repositories,
-      folders: [...scan().folders, folder("wt-c", "/w/wt-c")],
+      roots: [{ path: "/w", folders: [...scan().folders, folder("wt-c", "/w/wt-c")] }],
       problems: [{ path: "/w/broken", code: "dubiousOwnership", message: "no" }],
     });
     expect(orderedCheckouts(next)).toEqual(["/w/app", "/w/wt-a", "/w/nested/wt-b", "/w/wt-c"]);

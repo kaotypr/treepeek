@@ -24,6 +24,8 @@ function scanned(overrides: Partial<Checkout>): ScannedCheckout {
     checkout: {
       path: "/nowhere/app",
       kind: "linked",
+      location: "inside",
+      locked: false,
       branch: "topic",
       head: B,
       upstream: null,
@@ -35,7 +37,6 @@ function scanned(overrides: Partial<Checkout>): ScannedCheckout {
     },
     commonDir: "/nowhere/app/.git",
     gitDir: "/nowhere/app/.git/worktrees/app",
-    relativePath: "app",
     worktreeId: "id",
     reflogStart: null,
   };

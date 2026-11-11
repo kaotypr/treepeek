@@ -22,23 +22,29 @@ export function pruneOnStartup(store: ReviewStore, options: PruneOptions = {}): 
 }
 
 /**
- * After a scan: an identity of a scanned repository whose checkout lies under the scan
- * root, but which Git's worktree list no longer holds, is forgotten once it has not been
- * seen for `REVIEW_LIMITS.pruneAfterDays` days, with its marks, override and the snapshots
- * that leaves unreferenced. An identity outside the scan root is left alone: it was only
- * outside this scan, not gone. Then the snapshot store is brought under its cap.
+ * After a scan (review-marks design, "Pruning"): an identity of a scanned repository whose
+ * checkout the scan could have listed, but which Git's worktree list no longer holds, is
+ * forgotten once it has not been seen for `REVIEW_LIMITS.pruneAfterDays` days, with its
+ * marks, override and the snapshots that leaves unreferenced. The scan could have listed a
+ * checkout under any of its roots, and anywhere when it lists outside worktrees
+ * (`worktrees: "all"`): agent tools delete their worktrees themselves, so this is what
+ * drops their marks. An identity elsewhere is left alone: it was only outside this scan,
+ * not gone. Then the snapshot store is brought under its cap.
  */
 export function pruneAfterScan(
   store: ReviewStore,
-  scan: Pick<ScanResult, "scanRoot" | "listedCheckouts">,
+  scan: Pick<ScanResult, "roots" | "worktrees" | "listedCheckouts">,
   options: PruneOptions = {},
 ): { worktrees: number; snapshots: number } {
   const now = options.now ?? new Date();
   const olderThan = storeTime(new Date(now.getTime() - REVIEW_LIMITS.pruneAfterDays * DAY_MS));
+  const anywhere = scan.worktrees === "all";
+  const inScope = (path: string) =>
+    anywhere || scan.roots.some((root) => isWithin(path, root.path));
   let worktrees = 0;
   for (const [commonDir, listed] of scan.listedCheckouts) {
     for (const row of store.listStaleWorktrees(commonDir, listed, olderThan)) {
-      if (!isWithin(row.checkoutPath, scan.scanRoot)) continue;
+      if (!inScope(row.checkoutPath)) continue;
       store.deleteWorktree(row.worktreeId);
       worktrees += 1;
     }

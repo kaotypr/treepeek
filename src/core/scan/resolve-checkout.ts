@@ -24,8 +24,6 @@ export interface ScannedCheckout {
   readonly checkout: Checkout;
   readonly commonDir: string;
   readonly gitDir: string;
-  /** Path relative to the scan root, `/`-separated (`""` when it is the root). */
-  readonly relativePath: string;
   /** The identity review marks and the start override attach to. */
   readonly worktreeId: string;
   /** The oldest HEAD reflog entry that is an ancestor of HEAD, or `null` (before overrides). */
@@ -81,6 +79,8 @@ export async function resolveCheckout(
     checkout: {
       path: candidate.path,
       kind: candidate.kind,
+      location: candidate.location,
+      locked: candidate.locked,
       branch: status.branch ?? null,
       head: status.head,
       upstream: upstreamOf(status),
@@ -91,7 +91,6 @@ export async function resolveCheckout(
     },
     commonDir: candidate.commonDir,
     gitDir: candidate.gitDir,
-    relativePath: candidate.relativePath,
     worktreeId: identity.worktreeId,
     reflogStart,
   };

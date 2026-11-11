@@ -1,25 +1,34 @@
 import { MAX_SCAN_DEPTH, SKIP_DIRS } from "../../shared/constants";
-import type { FolderNode, Repository, ScanProblem, TimelineEntry } from "../../shared/domain/scan";
+import type {
+  Repository,
+  ScanProblem,
+  ScanRoot,
+  TimelineEntry,
+  WorktreeChoice,
+} from "../../shared/domain/scan";
 import { asIpcError, GitError } from "../git/errors";
+import type { WorktreeEntry } from "../git/parse/worktree-list";
 import type { ScanContext } from "./context";
 import { isAncestor } from "./queries";
 import { buildRepositories } from "./repositories";
 import { resolveCheckout, type ScannedCheckout } from "./resolve-checkout";
 import { buildTimeline } from "./timeline";
-import { validateCandidates } from "./validate";
+import { deriveCheckouts, validateCandidates } from "./validate";
 import { type WalkResult, walk } from "./walk";
 
 /** Everything one scan found. */
 export interface ScanResult {
-  scanRoot: string;
-  folders: FolderNode[];
+  /** Each scan root with its folder tree, in the session's order. */
+  roots: ScanRoot[];
+  /** Which checkouts the scan listed besides the walked ones. */
+  worktrees: WorktreeChoice;
   /** In timeline order. */
   checkouts: ScannedCheckout[];
   timeline: TimelineEntry[];
   repositories: Repository[];
   problems: ScanProblem[];
   /**
-   * The real paths of every checkout Git lists, inside the scan root or not, by common dir
+   * The real paths of every checkout Git lists, inside a scan root or not, by common dir
    * (pruning forgets identities Git no longer lists).
    */
   listedCheckouts: ReadonlyMap<string, ReadonlySet<string>>;
@@ -27,32 +36,66 @@ export interface ScanResult {
   durationMs: number;
 }
 
-/** Step 1: the folder tree and the candidate checkouts. */
-export function walkScanRoot(ctx: ScanContext): Promise<WalkResult> {
-  return walk(ctx.scanRoot, { maxDepth: MAX_SCAN_DEPTH, skip: SKIP_DIRS, signal: ctx.signal });
+/** One scan root's walk. */
+export interface RootWalk extends WalkResult {
+  /** The scan root: a real absolute path. */
+  path: string;
+}
+
+/** Step 1: each root's folder tree and candidate checkouts, in the context's order. */
+export async function walkScanRoots(ctx: ScanContext): Promise<RootWalk[]> {
+  const walked: RootWalk[] = [];
+  // One root at a time: each walk already reads many folders at once.
+  for (const path of ctx.scanRoots) {
+    const result = await walk(path, {
+      maxDepth: MAX_SCAN_DEPTH,
+      skip: SKIP_DIRS,
+      signal: ctx.signal,
+    });
+    walked.push({ path, ...result });
+  }
+  return walked;
+}
+
+/** The candidates of every root's walk, each once. */
+export function walkedCandidates(walked: readonly RootWalk[]): string[] {
+  return [...new Set(walked.flatMap((root) => root.candidates))];
+}
+
+/** Each root's folder tree, as `scan.start` answers it. */
+export function scanRootsOf(walked: readonly RootWalk[]): ScanRoot[] {
+  return walked.map((root) => ({ path: root.path, folders: root.folders }));
 }
 
 /**
- * Steps 2 to 5 (git-service design, "The scan"): validates the walk's candidates, resolves
- * each checkout through the git queue and hands it to `onCheckout` the moment it resolves,
- * then builds the timeline and the repositories.
+ * Steps 2 to 5 (git-service design, "The scan"): validates the walks' candidates, adds the
+ * checkouts their repositories' worktree lists hold elsewhere (unless the session asked for
+ * the walked ones only), resolves each checkout through the git queue and hands it to
+ * `onCheckout` the moment it resolves, then builds one timeline and the repositories.
+ * Repositories found from different roots merge by their common dir.
  *
  * A checkout that fails to resolve becomes a problem instead of failing the scan. Throws a
  * `cancelled` `GitError` when the scan's signal aborts.
  */
 export async function resolveScan(
   ctx: ScanContext,
-  walked: WalkResult,
+  walked: readonly RootWalk[],
   startedAt: number,
   onCheckout: (checkout: ScannedCheckout) => void,
 ): Promise<ScanResult> {
-  const { valid, problems, worktreeLists, listed } = await validateCandidates(
-    walked.candidates,
-    ctx,
-  );
+  const candidates = walkedCandidates(walked);
+  const validation = await validateCandidates(candidates, ctx);
+  const found = new Map<string, readonly WorktreeEntry[]>();
+  for (const candidate of validation.valid) {
+    const entries = validation.worktreeLists.get(candidate.commonDir);
+    if (entries) found.set(candidate.commonDir, entries);
+  }
+  const derived = await deriveCheckouts(found, new Set(candidates), ctx);
+  if (ctx.signal.aborted) throw cancelled();
+  const problems = [...validation.problems, ...derived.problems];
 
   const resolved = await Promise.all(
-    valid.map(async (candidate) => {
+    [...validation.valid, ...derived.valid].map(async (candidate) => {
       try {
         const scanned = await resolveCheckout(candidate, ctx);
         if (!ctx.signal.aborted) onCheckout(scanned);
@@ -74,7 +117,6 @@ export async function resolveScan(
     scanned.map((item) => ({
       checkoutPath: item.checkout.path,
       commonDir: item.commonDir,
-      relativePath: item.relativePath,
       start: item.checkout.start,
       head: item.checkout.head,
     })),
@@ -94,30 +136,30 @@ export async function resolveScan(
     return item ? [item] : [];
   });
   return {
-    scanRoot: ctx.scanRoot,
-    folders: walked.folders,
+    roots: scanRootsOf(walked),
+    worktrees: ctx.worktrees,
     checkouts: ordered,
     timeline,
     repositories: buildRepositories(
       ordered.map((item) => ({ path: item.checkout.path, commonDir: item.commonDir })),
-      worktreeLists,
+      validation.worktreeLists,
     ),
     problems: problems.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)),
-    listedCheckouts: listed,
+    listedCheckouts: validation.listed,
     durationMs: Date.now() - startedAt,
   };
 }
 
 export interface ScanEvents {
-  /** The folder tree, before any checkout. */
-  onFolders?(walked: WalkResult): void;
+  /** Each root's folder tree, before any checkout. */
+  onFolders?(walked: readonly RootWalk[]): void;
   onCheckout?(checkout: ScannedCheckout): void;
 }
 
 /** A whole scan in one call: walk, then resolve (tools and tests). */
 export async function runScan(ctx: ScanContext, events: ScanEvents = {}): Promise<ScanResult> {
   const startedAt = Date.now();
-  const walked = await walkScanRoot(ctx);
+  const walked = await walkScanRoots(ctx);
   events.onFolders?.(walked);
   return resolveScan(ctx, walked, startedAt, (checkout) => events.onCheckout?.(checkout));
 }

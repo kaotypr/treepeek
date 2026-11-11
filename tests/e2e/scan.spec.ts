@@ -43,14 +43,16 @@ test.describe(`scan (${target})`, () => {
           });
         });
       });
-      const opened = await window.treepeek.core.session.open({ scanRoot });
+      const opened = await window.treepeek.core.session.open({ scanRoots: [scanRoot] });
       const started = await window.treepeek.core.scan.start({ requestId: "e2e-scan" });
       order.push("result");
       const finished = await done;
       offCheckout();
       return {
         opened: opened.ok,
-        started: started.ok ? { ok: true, root: started.value.scanRoot } : started,
+        started: started.ok
+          ? { ok: true, roots: started.value.roots.map((root) => root.path) }
+          : started,
         finished,
         order,
         checkouts,
@@ -58,7 +60,7 @@ test.describe(`scan (${target})`, () => {
     }, fx.root);
 
     expect(result.opened).toBe(true);
-    expect(result.started).toEqual({ ok: true, root: fx.root });
+    expect(result.started).toEqual({ ok: true, roots: [fx.root] });
     expect(result.order).toEqual(["result", "scan.checkout", "scan.checkout", "scan.done"]);
     expect(result.checkouts.sort()).toEqual([fx.path("app"), fx.path("app-feature")].sort());
     expect(result.finished).toEqual({ sequences: [1, 2], names: ["app"] });

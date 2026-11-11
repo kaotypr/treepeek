@@ -36,7 +36,7 @@ afterAll(() => {
 
 async function scanned(created: Harness, windowId: number, root: string): Promise<Client> {
   const { client } = created.open(windowId);
-  await client.call("session.open", { scanRoot: root });
+  await client.call("session.open", { scanRoots: [root] });
   await client.call("scan.start", { requestId: "s1" });
   await client.waitForEvent("scan.done");
   return client;

@@ -89,13 +89,14 @@ export function applyRefreshCheckout(
 }
 
 /**
- * The scan after a `refresh.timeline`: the core service's timeline, repositories, folders
- * and problems, except that a removed checkout still selected keeps its timeline entry and
+ * The scan after a `refresh.timeline`: the core service's timeline, repositories, the
+ * window's root's folders and problems, except that a removed checkout still selected keeps its timeline entry and
  * its folder in the tree, so it stays in the picker until the person moves on.
  */
 export function applyRefreshTimeline(scan: ScanData, payload: RefreshTimeline): ScanData {
   let timeline = payload.timeline;
-  const folders = [...payload.folders];
+  // The window's session has one root (`scan-stream.ts`).
+  const folders = [...(payload.roots[0]?.folders ?? [])];
   const present = new Set(folders.map((folder) => folder.relativePath));
   const removed: Record<string, string[]> = {};
   for (const path of Object.keys(scan.removed)) {

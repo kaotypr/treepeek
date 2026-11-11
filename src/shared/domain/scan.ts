@@ -1,6 +1,6 @@
 /**
- * What a scan finds: the scan root, its folder tree, the repositories and checkouts beneath
- * it, and the timeline that orders those checkouts.
+ * What a scan finds: its scan roots, the folder tree under each, the repositories and
+ * checkouts found from them, and the timeline that orders those checkouts.
  *
  * Every path here is a real (symlink-resolved) absolute path unless the field says it is
  * relative. Commit ids are opaque strings: nothing assumes 40 hex characters.
@@ -8,19 +8,39 @@
 
 import type { IpcErrorCode } from "../ipc/result";
 
-/** The folder a window scans. One per window. */
+/**
+ * One folder a scan walks, with the folder tree the walk found under it. A session scans
+ * one or more; none lies inside another.
+ */
 export interface ScanRoot {
-  /** Real absolute path; the scan root's identity. */
+  /** Real absolute path; the root's identity. */
   path: string;
+  /** Every folder the walk listed, the root first; `relativePath` is relative to `path`. */
+  folders: FolderNode[];
 }
 
-/** A folder under the scan root, kept for the folder picker and the tree. */
+/**
+ * Which checkouts a scan lists besides the ones its walk finds, chosen when the session
+ * opens:
+ *
+ * - `all` (the default): every checkout its repositories' worktree lists report, wherever
+ *   it lies;
+ * - `inside`: those under a scan root only, so worktrees elsewhere are left out;
+ * - `walked`: only the checkouts the walk itself finds.
+ */
+export const WORKTREE_CHOICES = Object.freeze(["all", "inside", "walked"] as const);
+export type WorktreeChoice = (typeof WORKTREE_CHOICES)[number];
+
+/** A folder under a scan root, kept for the folder picker and the tree. */
 export interface FolderNode {
   /** The folder's own name (its last path segment). */
   name: string;
-  /** Path relative to the scan root, `/`-separated; the node's identity. `""` is the root. */
+  /**
+   * Path relative to its scan root, `/`-separated; the node's identity within that root.
+   * `""` is the root.
+   */
   relativePath: string;
-  /** Depth below the scan root; the root itself is 0. */
+  /** Depth below its scan root; the root itself is 0. */
   depth: number;
   /** `relativePath` of the parent folder, or `null` for the scan root. */
   parent: string | null;
@@ -43,14 +63,18 @@ export interface Repository {
    */
   displayName: string;
   /**
-   * `path` of each checkout that Git's own worktree list reports and that lies under the
-   * scan root. Checkouts outside the root are not listed.
+   * `path` of each checkout of the scan in this repository, in timeline order: every one
+   * Git's own worktree list reports, wherever it lies, unless the session's
+   * `WorktreeChoice` leaves some out.
    */
   checkouts: string[];
 }
 
 /** `main` when the checkout's git dir equals the common dir, otherwise `linked`. */
 export type CheckoutKind = "main" | "linked";
+
+/** Whether a checkout lies under one of the scan's roots (`inside`) or not (`outside`). */
+export type CheckoutLocation = "inside" | "outside";
 
 /** The branch's upstream, from `status --porcelain=v2 --branch`. */
 export interface Upstream {
@@ -114,6 +138,13 @@ export interface Checkout {
   /** Real absolute path of its top level; the identity. */
   path: string;
   kind: CheckoutKind;
+  /**
+   * `inside` when it lies under a scan root, whether or not the walk reached it (a
+   * worktree inside another checkout, or deeper than the depth limit); `outside` otherwise.
+   */
+  location: CheckoutLocation;
+  /** Git's worktree list says it is locked (`git worktree lock`). */
+  locked: boolean;
   /** Branch name, or `null` when HEAD is detached. */
   branch: string | null;
   /** Full HEAD commit id, or `null` on an unborn branch (a repository without commits). */
@@ -165,8 +196,9 @@ export interface TimelineEntry {
 }
 
 /**
- * Why a window's folder cannot be scanned at all, carried in the `invalidRequest` error of
- * `session.open` and `scan.start` as `detail.scanRoot`:
+ * Why a scan root cannot be scanned at all, carried in the `invalidRequest` error of
+ * `session.open` and `scan.start` as `detail.scanRoot`, with the root itself as
+ * `detail.path`:
  *
  * - `missing`: it does not exist (any more);
  * - `notAFolder`: it is a file;

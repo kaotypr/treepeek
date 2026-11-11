@@ -32,7 +32,7 @@ export function buildWatchIndex(scans: Iterable<WatchedScan>): WatchIndex {
   const commonDirs = new Set<string>();
   const scanRoots = new Set<string>();
   for (const scan of scans) {
-    scanRoots.add(scan.scanRoot);
+    for (const scanRoot of scan.scanRoots) scanRoots.add(scanRoot);
     for (const checkout of scan.checkouts) {
       checkouts.set(checkout.path, checkout);
       gitDirs.set(checkout.gitDir, checkout.path);

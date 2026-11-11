@@ -49,7 +49,7 @@ describe("comparisons in a repository whose own config tries to run programs", (
     const created = harness();
     try {
       const { client } = created.open(1);
-      await client.call("session.open", { scanRoot: fx.root });
+      await client.call("session.open", { scanRoots: [fx.root] });
       await client.call("scan.start", { requestId: "scan" });
       await client.waitForEvent("scan.done");
       for (const checkout of [topic, repo]) {
