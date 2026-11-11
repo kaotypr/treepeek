@@ -155,7 +155,7 @@ test.describe(`foundation (${target})`, () => {
     expect(shape.coreComparison).toEqual(["list"]);
     expect(shape.coreDiff).toEqual(["file"]);
     expect(shape.coreReview).toEqual(["clearAll", "mark", "markAll", "status", "storeUsage"]);
-    expect(shape.coreRefresh).toEqual(["resume"]);
+    expect(shape.coreRefresh).toEqual(["foreground", "resume"]);
     expect(shape.coreTest).toEqual(["liveRefresh"]);
     expect(shape.unchanged).toBe(true);
   });

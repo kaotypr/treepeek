@@ -4,7 +4,7 @@ import type { CoreState } from "../cache/shared-state";
 import type { ScanResult } from "../scan/scan";
 import type { Session } from "../sessions/session";
 import type { ReviewStore } from "../store/review-store";
-import type { BackendName, WatchBackend } from "./backends";
+import type { WatchBackend } from "./backends";
 import { type SubscriptionInfo, WatchManager, type WatchManagerOptions } from "./manager";
 import { RefreshRunner } from "./refresh";
 import { revalidateAll } from "./revalidate";
@@ -25,7 +25,8 @@ export interface LiveRefreshOptions {
 
 /** What `test.liveRefresh` reports. */
 export interface LiveRefreshInfo {
-  backend: BackendName;
+  /** The name of the backend watching (`WatchManager.backend`). */
+  backend: string;
   subscriptions: SubscriptionInfo[];
   /** Folders no backend could watch. */
   unavailable: string[];
@@ -91,6 +92,14 @@ export class LiveRefresh {
   async resume(session: Session): Promise<void> {
     await this.watch.resume(session.id);
     this.#announce(session);
+  }
+
+  /**
+   * A host shows the session's views (`true`) or hides them. In the background, edits in a
+   * working tree only mark its checkout stale (`RefreshRunner.setForeground`).
+   */
+  setForeground(session: Session, foreground: boolean): void {
+    this.runner.setForeground(session, foreground);
   }
 
   /** The Mac woke from sleep: every window's checkouts are read again. */

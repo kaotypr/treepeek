@@ -8,11 +8,17 @@ function testHooksEnabled(): boolean {
 
 /**
  * Live refresh's calls: `refresh.resume` (the Refresh button after an event storm or a
- * watcher failure; the window rescans after it) and the test-only `test.liveRefresh`.
+ * watcher failure; the window rescans after it), `refresh.foreground` (a host showing or
+ * hiding the session's views) and the test-only `test.liveRefresh`.
  */
 export function registerRefreshHandlers(session: Session, services: SessionServices): void {
   session.rpc.onCall(coreCalls["refresh.resume"], async () => {
     await services.live?.resume(session);
+    return ok({});
+  });
+
+  session.rpc.onCall(coreCalls["refresh.foreground"], (_ctx, request) => {
+    services.live?.setForeground(session, request.foreground);
     return ok({});
   });
 
