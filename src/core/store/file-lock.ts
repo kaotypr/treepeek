@@ -83,6 +83,11 @@ export function acquireFileLock(path: string, options: FileLockOptions = {}): Fi
 }
 
 function tryCreate(path: string, nonce: string): boolean {
+  // Made before the file exists, so only the write itself stands between creating the
+  // lock and naming its holder; a holder killed in between leaves a lock with no owner.
+  const holder = Buffer.from(
+    JSON.stringify({ pid: process.pid, nonce, time: new Date().toISOString() }),
+  );
   let fd: number;
   try {
     fd = openSync(path, "wx", 0o600);
@@ -91,7 +96,7 @@ function tryCreate(path: string, nonce: string): boolean {
     throw error;
   }
   try {
-    writeSync(fd, JSON.stringify({ pid: process.pid, nonce, time: new Date().toISOString() }));
+    writeSync(fd, holder);
   } catch (error) {
     closeSync(fd);
     rmSync(path, { force: true });
