@@ -32,7 +32,7 @@ import {
  * Bumped whenever a channel's shape changes. Main, the core service and every window come
  * from one build, so a mismatch means something is badly wrong; it is still checked.
  */
-export const CONTRACT_VERSION = 11;
+export const CONTRACT_VERSION = 12;
 
 const Empty = v.strictObject({});
 
@@ -505,6 +505,17 @@ export const coreCalls = {
   "refresh.resume": defineCall({
     name: "refresh.resume",
     request: Empty,
+    response: v.object({}),
+  }),
+  /**
+   * Whether the session's views are on screen. A session starts in the foreground. In the
+   * background, edits in a working tree only mark its checkout stale, while changes in Git
+   * (the index, HEAD, refs, worktrees) refresh as usual; back in the foreground, each stale
+   * checkout is refreshed once. Sending the state the session is already in does nothing.
+   */
+  "refresh.foreground": defineCall({
+    name: "refresh.foreground",
+    request: v.strictObject({ foreground: v.boolean() }),
     response: v.object({}),
   }),
   /**

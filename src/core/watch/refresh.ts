@@ -85,13 +85,43 @@ const REVIEW_PARALLEL = 2;
  * the checkout refreshes its own view (two windows on one repository share the git work
  * through the caches). A window's refreshes run one batch at a time, waiting for a scan in
  * progress, and a scan starting stops the one running: the scan reads everything anyway.
+ *
+ * A session in the background (`setForeground`) skips changes that are only edits in a
+ * working tree: it marks the checkout stale instead, and refreshes it once when it comes
+ * back to the foreground.
  */
 export class RefreshRunner {
   readonly #options: RefreshRunnerOptions;
   readonly #queues = new Map<Session, Queue>();
+  /**
+   * The sessions in the background, each with its stale checkouts: those whose working
+   * tree changed while it was there, and whose status no refresh has read since.
+   */
+  readonly #background = new WeakMap<Session, Set<string>>();
 
   constructor(options: RefreshRunnerOptions) {
     this.#options = options;
+  }
+
+  /**
+   * Puts a session in the background (`false`) or brings it back (`true`); a session starts
+   * in the foreground, and sending the state it is in does nothing. Back in the
+   * foreground, each stale checkout still in its scan is refreshed once, for it alone.
+   */
+  setForeground(session: Session, foreground: boolean): void {
+    const stale = this.#background.get(session);
+    if (!foreground) {
+      if (!stale) this.#background.set(session, new Set());
+      return;
+    }
+    if (!stale) return;
+    this.#background.delete(session);
+    if (session.closed) return;
+    const paths = [...stale].filter((path) => session.checkoutAt(path) !== undefined);
+    if (paths.length === 0) return;
+    this.#enqueue(session, (batch) => {
+      for (const path of paths) addKinds(batch, path, ["workingTree"]);
+    });
   }
 
   /** Routes a debounced change to every session it concerns. */
@@ -173,17 +203,20 @@ export class RefreshRunner {
     if (!scanned) return;
     const repo = this.#options.state.repository(scanned.commonDir);
     if (repo) {
+      // Runs no git, so it happens for sessions in the background too.
       repo.cache.invalidate(checkoutPath, kinds);
       // Whatever moved, the status says whether HEAD did: a commit on a branch only
       // touches the branch's ref, the index and the reflog, never `HEAD` itself.
       repo.cache.statuses.delete(checkoutPath);
     }
+    const editsOnly = kinds.length > 0 && kinds.every((kind) => kind === "workingTree");
     for (const session of sessions) {
-      this.#enqueue(session, (batch) => {
-        const gathered = batch.checkouts.get(checkoutPath) ?? new Set<ChangeKind>();
-        for (const kind of kinds) gathered.add(kind);
-        batch.checkouts.set(checkoutPath, gathered);
-      });
+      const stale = this.#background.get(session);
+      if (stale && editsOnly) {
+        stale.add(checkoutPath);
+        continue;
+      }
+      this.#enqueue(session, (batch) => addKinds(batch, checkoutPath, kinds));
     }
   }
 
@@ -369,6 +402,8 @@ export class RefreshRunner {
     const changed = new Set(kinds);
     if (!read) return { scanned, changed };
     const path = scanned.checkout.path;
+    // Read now, so no longer stale; an edit landing while it runs marks it again.
+    this.#background.get(session)?.delete(path);
     try {
       const repo = ctx.repository(scanned.commonDir);
       const status = await readStatus(repo, path, ctx.signal);
@@ -635,6 +670,13 @@ export class RefreshRunner {
 
 function emptyBatch(): Batch {
   return { structure: false, revalidate: false, repositories: new Map(), checkouts: new Map() };
+}
+
+/** Adds `kinds` to what the batch refreshes in a checkout. */
+function addKinds(batch: Batch, checkoutPath: string, kinds: Iterable<ChangeKind>): void {
+  const gathered = batch.checkouts.get(checkoutPath) ?? new Set<ChangeKind>();
+  for (const kind of kinds) gathered.add(kind);
+  batch.checkouts.set(checkoutPath, gathered);
 }
 
 function isEmpty(batch: Batch): boolean {

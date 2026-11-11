@@ -94,6 +94,14 @@ export class LiveRefresh {
     this.#announce(session);
   }
 
+  /**
+   * A host shows the session's views (`true`) or hides them. In the background, edits in a
+   * working tree only mark its checkout stale (`RefreshRunner.setForeground`).
+   */
+  setForeground(session: Session, foreground: boolean): void {
+    this.runner.setForeground(session, foreground);
+  }
+
   /** The Mac woke from sleep: every window's checkouts are read again. */
   revalidate(): Promise<void> {
     return revalidateAll(this.runner, this.#log);

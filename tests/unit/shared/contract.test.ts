@@ -252,7 +252,7 @@ describe("contract", () => {
         state: { found: false, problem: "xcodeMissing" },
       }).success,
     ).toBe(true);
-    expect(CONTRACT_VERSION).toBe(11);
+    expect(CONTRACT_VERSION).toBe(12);
   });
 
   it("carries paths.validate between main and core, bounded", () => {
@@ -578,6 +578,37 @@ describe("contract", () => {
     const rest = { timeline: [], repositories: [], problems: [] };
     expect(v.safeParse(timeline, { ...rest, roots }).success).toBe(true);
     expect(v.safeParse(timeline, { ...rest, folders }).success).toBe(false);
+  });
+
+  it("validates refresh.foreground strictly", () => {
+    const foreground = coreCalls["refresh.foreground"];
+    expect(parseRequest(foreground, { foreground: true }).ok).toBe(true);
+    expect(parseRequest(foreground, { foreground: false }).ok).toBe(true);
+    for (const bad of [
+      {},
+      { foreground: "false" },
+      { foreground: 0 },
+      { foreground: null },
+      { foreground: true, extra: 1 },
+    ]) {
+      expect(parseRequest(foreground, bad).ok, JSON.stringify(bad)).toBe(false);
+    }
+    expect(v.safeParse(foreground.response, {}).success).toBe(true);
+  });
+
+  it("names any watcher backend in test.liveRefresh, a host's included", () => {
+    const response = coreCalls["test.liveRefresh"].response;
+    const info = (backend: string) => ({
+      backend,
+      subscriptions: [{ kind: "common", path: "/r/.git", backend, holders: 1 }],
+      unavailable: [],
+      rssBytes: 1,
+      calls: {},
+    });
+    for (const backend of ["fsevents", "fs.watch", "vscode"]) {
+      expect(v.safeParse(response, info(backend)).success, backend).toBe(true);
+    }
+    expect(v.safeParse(response, { ...info("x"), backend: null }).success).toBe(false);
   });
 
   it("marks state-like events sticky", () => {
