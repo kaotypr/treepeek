@@ -1,4 +1,3 @@
-import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import type { DatabaseSync, SQLOutputValue, StatementSync } from "node:sqlite";
 import { pendingMigrations, SCHEMA_VERSION } from "./migrations";
@@ -19,19 +18,36 @@ type SqliteModule = typeof import("node:sqlite");
 let loaded: SqliteModule | null | undefined;
 
 /**
- * `node:sqlite`, or `null` when this runtime does not have it. It is required lazily, so a
+ * `node:sqlite`, or `null` when this runtime does not have it. It is loaded lazily, so a
  * runtime without it falls back to the JSON engine instead of failing to load the core
  * service.
+ *
+ * Through `process.getBuiltinModule` rather than `createRequire` on this module's URL: it
+ * needs no module URL, which a CommonJS bundle of the core does not have, and it returns
+ * `undefined` for a module this runtime lacks instead of throwing.
  */
 export function loadNodeSqlite(): SqliteModule | null {
   if (loaded !== undefined) return loaded;
+  // Typed as a plain string so the call returns `object | undefined`: what comes back is
+  // checked here rather than taken from the typings, which assume the module exists.
+  const id: string = "node:sqlite";
+  let candidate: unknown;
   try {
-    const require = createRequire(import.meta.url);
-    loaded = require("node:sqlite") as SqliteModule;
+    candidate = process.getBuiltinModule(id);
   } catch {
-    loaded = null;
+    candidate = undefined;
   }
+  loaded = isSqliteModule(candidate) ? candidate : null;
   return loaded;
+}
+
+function isSqliteModule(value: unknown): value is SqliteModule {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "DatabaseSync" in value &&
+    typeof value.DatabaseSync === "function"
+  );
 }
 
 type Row = Record<string, SQLOutputValue>;
