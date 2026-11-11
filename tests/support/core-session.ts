@@ -31,7 +31,8 @@ export interface Client {
   waitForEvent(channel: string, count?: number, timeoutMs?: number): Promise<void>;
 }
 
-function adapt(port: MessagePort): PortLike {
+/** A `node:worker_threads` port as the core service's side of a session. */
+export function adapt(port: MessagePort): PortLike {
   return {
     postMessage: (message) => port.postMessage(message),
     onMessage: (listener) => port.on("message", listener),
@@ -39,7 +40,8 @@ function adapt(port: MessagePort): PortLike {
   };
 }
 
-function client(port: MessagePort): Client {
+/** The renderer's side of a session, over the other end of the channel. */
+export function client(port: MessagePort): Client {
   let nextId = 1;
   const waiting = new Map<number, (result: Result<unknown>) => void>();
   const arrivals: Arrival[] = [];
