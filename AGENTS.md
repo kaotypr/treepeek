@@ -96,7 +96,7 @@ the code to the process that owns it.
 | Switching off a repository's own filter drivers                                | `src/core/git/untrusted-config.ts`                                                                          |
 | Git output parsers                                                             | `src/core/git/parse/`                                                                                       |
 | Long-lived `cat-file` and `hash-object` processes                              | `src/core/git/cat-file.ts`, `src/core/git/hash-object.ts`                                                   |
-| The scan (root check, walk, validation, checkouts, timeline)                   | `src/core/scan/` (`root.ts` names a folder that cannot be scanned)                                          |
+| The scan (root checks, walk, validation, checkouts, timeline)                  | `src/core/scan/` (`root.ts` names a folder that cannot be scanned, `roots.ts` a session's roots)            |
 | Comparison kinds, file lists, `resultHash`                                     | `src/core/compare/`                                                                                         |
 | One file's diff (patch, contents, limits)                                      | `src/core/diff/`                                                                                            |
 | Local store (worktree identity, start overrides, review marks, snapshot files) | `src/core/store/` (`snapshots.ts` for the snapshot folder)                                                  |
