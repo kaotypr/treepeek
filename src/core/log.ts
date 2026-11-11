@@ -26,12 +26,15 @@ export function initCoreLog(userDataDir: string): void {
   for (const line of buffered.splice(0)) sink(line);
 }
 
+/**
+ * The desktop core service's log: `core.log` once `initCoreLog` has run, buffered until
+ * then. The desktop adapter hands it to `createCoreService`.
+ */
+export const coreLogSink: LogSink = (line) => {
+  if (sink) sink(line);
+  else if (buffered.length < MAX_BUFFERED) buffered.push(line);
+};
+
 export function createLogger(scope: string): Logger {
-  return createSharedLogger({
-    scope: `core:${scope}`,
-    sink: (line) => {
-      if (sink) sink(line);
-      else if (buffered.length < MAX_BUFFERED) buffered.push(line);
-    },
-  });
+  return createSharedLogger({ scope: `core:${scope}`, sink: coreLogSink });
 }

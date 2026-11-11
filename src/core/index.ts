@@ -1,35 +1,25 @@
 /**
- * The core service: one Electron utility process for the whole app. It owns every Git and
- * filesystem operation and serves each window over its own MessagePort, with one session
- * per window sharing one `CoreState` and one local store.
+ * The desktop's core service: one Electron utility process for the whole app. This file
+ * is its adapter to Electron. It speaks main's messages over the parent port, checks the
+ * contract version, answers health checks and installs the process handlers; everything
+ * else is the host-free service (`service.ts`), with one session per window.
  */
 import type { MessagePortMain } from "electron";
 import * as v from "valibot";
-import { CONTRACT_VERSION, type CoreToMain, coreCalls, MainToCoreSchema, ok } from "../shared/ipc";
-import { CoreState } from "./cache/shared-state";
+import { CONTRACT_VERSION, type CoreToMain, MainToCoreSchema } from "../shared/ipc";
 import { type DiscoverOptions, discoverGit, probeGit } from "./git/discover";
-import { rediscoverGit } from "./git/runtime";
-import { registerSessionCalls } from "./handlers";
-import { validatePaths } from "./handlers/paths";
-import { createLogger, initCoreLog } from "./log";
-import { probeSqlite } from "./probe-sqlite";
-import { pruneOnStartup } from "./review/prune";
+import { coreLogSink, createLogger, initCoreLog } from "./log";
 import type { PortLike } from "./rpc";
-import { SessionRegistry } from "./sessions/registry";
-import type { Session, SessionServices } from "./sessions/session";
-import { openReviewStore } from "./store/open-store";
-import type { ReviewStore } from "./store/review-store";
+import { type CoreService, createCoreService } from "./service";
 import { defaultBackends, parseFaults } from "./watch/backends";
-import { LiveRefresh } from "./watch/live";
 
 const log = createLogger("service");
 const parentPort = process.parentPort;
-const sqlite = probeSqlite();
 
-/** Repository caches and batch processes, shared by every session. */
-const state = new CoreState();
-/** Opened by `core.init`, which carries the user data folder; `null` until then or on failure. */
-let store: ReviewStore | null = null;
+/** Created by `core.init`, which carries the user data folder; `null` until then. */
+let service: CoreService | null = null;
+/** The login `PATH` from `core.init`, which `git.probe` runs with. */
+let loginPath: string | null = null;
 
 /**
  * Test-only (honoured only with `NODE_ENV=test`): watcher backends that fail every
@@ -41,46 +31,6 @@ const watcherFaults = parseFaults(
   process.env.NODE_ENV === "test" ? process.env[WATCHER_FAULT_ENV] : undefined,
 );
 
-/** The watchers and the refreshes they start, shared by every window. */
-const live = new LiveRefresh({
-  state,
-  store: () => store,
-  sessions: () => sessions.all(),
-  log: log.child("live"),
-  backends: defaultBackends(watcherFaults),
-});
-const services: SessionServices = {
-  state,
-  store: () => store,
-  sessions: () => sessions.all(),
-  live,
-};
-
-function openStore(userDataDir: string): void {
-  if (store) return;
-  try {
-    store = openReviewStore(userDataDir, { log: log.child("store") });
-    log.info("local store opened", { engine: store.engine });
-  } catch (error) {
-    // Scans still run from the reflog alone; start overrides and marks fail until a restart.
-    log.error("could not open the local store", error);
-    return;
-  }
-  try {
-    const snapshots = pruneOnStartup(store);
-    if (snapshots > 0) log.info("pruned review snapshots", { snapshots });
-  } catch (error) {
-    log.warn("could not prune review snapshots", { error });
-  }
-}
-
-function send(message: CoreToMain): void {
-  parentPort.postMessage(message);
-}
-
-/** What discovery runs with; `core.init` sets both, `settings.gitPath` changes the override. */
-const discovery: DiscoverOptions = { override: null, loginPath: null };
-
 /**
  * Test-only (honoured only with `NODE_ENV=test`): discovery tries the override alone, as on
  * a Mac with no git anywhere else, so end-to-end tests can reach the git setup screen.
@@ -89,39 +39,16 @@ const OVERRIDE_ONLY_ENV = "TREEPEEK_E2E_GIT_OVERRIDE_ONLY";
 const overrideOnly = process.env.NODE_ENV === "test" && process.env[OVERRIDE_ONLY_ENV] === "1";
 const NOWHERE = "/nonexistent/treepeek-e2e/git";
 
-function discover(options: DiscoverOptions) {
-  if (!overrideOnly) return discoverGit(options);
+function discoverOverrideOnly(options: DiscoverOptions) {
   return discoverGit(
     { override: options.override, loginPath: null },
     { knownLocations: [], systemGit: NOWHERE },
   );
 }
 
-/** Runs git discovery and reports the result to main, which forwards it to every window. */
-async function discoverAndReport(): Promise<void> {
-  const state = await rediscoverGit({ ...discovery }, discover);
-  // A newer discovery started meanwhile; it reports instead.
-  if (state === undefined) return;
-  log.info("git discovery", state);
-  send({ type: "git.state", state });
+function send(message: CoreToMain): void {
+  parentPort.postMessage(message);
 }
-
-function registerHandlers(session: Session): void {
-  const { rpc } = session;
-  rpc.onCall(coreCalls["app.ping"], () =>
-    ok({ process: "core", pid: process.pid, at: Date.now() }),
-  );
-  rpc.onCall(coreCalls["app.info"], () =>
-    ok({
-      pid: process.pid,
-      versions: { node: process.versions.node, electron: process.versions.electron ?? "" },
-      sqlite,
-    }),
-  );
-  registerSessionCalls(session, services);
-}
-
-const sessions = new SessionRegistry(log, services, registerHandlers);
 
 function adaptPort(port: MessagePortMain): PortLike {
   return {
@@ -151,18 +78,25 @@ parentPort.on("message", (event) => {
         });
         process.exit(1);
       }
-      log.info("core service started", {
-        pid: process.pid,
-        node: process.versions.node,
-        electron: process.versions.electron,
-        sqlite,
-        ...(watcherFaults.size > 0 ? { watcherFaults: [...watcherFaults] } : {}),
+      if (service) {
+        log.warn("dropped a second core.init");
+        return;
+      }
+      loginPath = message.loginPath;
+      service = createCoreService({
+        dataDir: message.userDataDir,
+        logSink: coreLogSink,
+        gitPathOverride: message.gitPathOverride,
+        loginPath: message.loginPath,
+        watchBackends: defaultBackends(watcherFaults),
+        // Discovery reports only after an await, so main hears `core.ready` first.
+        onGitState: (state) => send({ type: "git.state", state }),
+        ...(overrideOnly ? { discover: discoverOverrideOnly } : {}),
       });
-      openStore(message.userDataDir);
+      if (watcherFaults.size > 0) {
+        log.info("watcher backends switched off", { watcherFaults: [...watcherFaults] });
+      }
       send({ type: "core.ready", pid: process.pid, contractVersion: CONTRACT_VERSION });
-      discovery.override = message.gitPathOverride;
-      discovery.loginPath = message.loginPath;
-      void discoverAndReport();
       return;
     }
     case "core.health":
@@ -174,21 +108,28 @@ parentPort.on("message", (event) => {
         log.warn("session.attach arrived without a port", { windowId: message.windowId });
         return;
       }
-      const session = sessions.open(message.windowId, adaptPort(port));
-      port.on("close", () => {
-        if (sessions.get(message.windowId) === session) sessions.close(message.windowId);
-      });
+      if (!service) {
+        // Main attaches windows only after `core.ready`; this is a safety net.
+        log.warn("session.attach arrived before core.init", { windowId: message.windowId });
+        port.close();
+        return;
+      }
+      const session = service.attachSession(message.windowId, adaptPort(port));
+      port.on("close", () => session.close());
       return;
     }
     case "session.close":
-      sessions.close(message.windowId);
+      service?.closeSession(message.windowId);
       return;
     case "settings.gitPath":
-      discovery.override = message.path;
-      void discoverAndReport();
+      if (!service) {
+        log.warn("settings.gitPath arrived before core.init");
+        return;
+      }
+      service.setGitPath(message.path);
       return;
     case "power.resume":
-      void live.revalidate().catch((error: unknown) => {
+      void service?.revalidate().catch((error: unknown) => {
         log.error("revalidating after sleep failed", error);
       });
       return;
@@ -196,7 +137,7 @@ parentPort.on("message", (event) => {
       const { id, path } = message;
       probeGit(
         path,
-        overrideOnly ? null : discovery.loginPath,
+        overrideOnly ? null : loginPath,
         overrideOnly ? { systemGit: NOWHERE } : {},
       ).then(
         (state) => send({ type: "git.probe", id, state }),
@@ -209,11 +150,16 @@ parentPort.on("message", (event) => {
     }
     case "paths.validate": {
       const { id, paths } = message;
-      validatePaths(sessions.all(), paths).then(
+      const none = () => paths.map(() => false);
+      if (!service) {
+        send({ type: "paths.validate", id, valid: none() });
+        return;
+      }
+      service.validatePaths(paths).then(
         (valid) => send({ type: "paths.validate", id, valid }),
         (error: unknown) => {
           log.error("paths.validate failed", error);
-          send({ type: "paths.validate", id, valid: paths.map(() => false) });
+          send({ type: "paths.validate", id, valid: none() });
         },
       );
       return;
@@ -222,10 +168,8 @@ parentPort.on("message", (event) => {
 });
 
 process.on("exit", () => {
-  void live.dispose();
-  sessions.closeAll();
-  state.close();
-  store?.close();
+  // Only the synchronous part runs here: sessions, caches and the store close at once.
+  void service?.dispose();
 });
 
 process.on("uncaughtException", (error) => {
