@@ -383,17 +383,49 @@ export class FixtureRepo extends FixtureCheckout {
    * (named after the folder unless `branch` says otherwise) or detached.
    */
   worktree(path: string, options: WorktreeOptions): FixtureCheckout {
-    const target = this.fixture.path(path);
+    return this.worktreeAt(this.fixture.path(path), options);
+  }
+
+  /**
+   * Adds a linked worktree at `<outside>/<path>`, beside the root rather than under it, as
+   * most agent tools place theirs.
+   */
+  outsideWorktree(path: string, options: WorktreeOptions): FixtureCheckout {
+    return this.worktreeAt(this.fixture.outsidePath(path), options);
+  }
+
+  /**
+   * Adds a linked worktree at `<main checkout>/.claude/worktrees/<name>`, where Claude Code
+   * puts its own: under the root, but inside a checkout, where the walk never goes.
+   */
+  agentWorktree(name: string, options: WorktreeOptions): FixtureCheckout {
+    return this.worktreeAt(join(this.path, ".claude", "worktrees", name), options);
+  }
+
+  /** Adds a linked worktree at an absolute path (see `worktree`). */
+  worktreeAt(target: string, options: WorktreeOptions): FixtureCheckout {
     mkdirSync(dirname(target), { recursive: true });
     const branchArgs = options.detach
       ? ["--detach"]
-      : ["-b", options.branch ?? refSafe(basename(path))];
+      : ["-b", options.branch ?? refSafe(basename(target))];
     this.repoGit(["worktree", "add", "--quiet", ...branchArgs, target, options.from], {
       records: true,
     });
     const checkout = new FixtureCheckout(this.fixture, realpathSync(target));
     this.worktrees.push(checkout);
     return checkout;
+  }
+
+  /** Locks a linked worktree (`git worktree lock`), so Git's list says `locked`. */
+  lock(worktree: FixtureCheckout, reason = "kept by a test"): this {
+    this.repoGit(["worktree", "lock", "--reason", reason, worktree.path]);
+    return this;
+  }
+
+  /** Unlocks a linked worktree (`git worktree unlock`). */
+  unlock(worktree: FixtureCheckout): this {
+    this.repoGit(["worktree", "unlock", worktree.path]);
+    return this;
   }
 
   /**

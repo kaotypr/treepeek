@@ -1,4 +1,4 @@
-import { symlinkSync, writeFileSync } from "node:fs";
+import { rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { CoreState } from "../../../../src/core/cache/shared-state";
@@ -68,7 +68,9 @@ beforeAll(async () => {
   symlinkSync(outsideRepo.path, fx.path("ext-link"));
   symlinkSync(app.path, fx.path("app-alias"));
 
-  result = await scan(fx.root, { state: coreState() });
+  // The walked checkouts only: the copied stale file's original, which Git still lists,
+  // lies outside the root (see "several roots and outside worktrees" for it).
+  result = await scan(fx.root, { state: coreState(), worktrees: "walked" });
 });
 
 afterEach(() => {
@@ -82,6 +84,8 @@ afterAll(() => {
 });
 
 const paths = (scanResult: ScanResult) => scanResult.checkouts.map((item) => item.checkout.path);
+/** The folder tree of the scan's only (or first) root. */
+const folders = (scanResult: ScanResult) => scanResult.roots[0]?.folders ?? [];
 const checkout = (scanResult: ScanResult, path: string) => {
   const found = scanResult.checkouts.find((item) => item.checkout.path === path);
   if (!found) throw new Error(`no checkout at ${path}`);
@@ -102,12 +106,12 @@ describe("scan", () => {
     expect(found).not.toContain(fx.path("stale/dangling"));
     expect(found).not.toContain(fx.path("stale/copied"));
     // The walk saw them as candidates; validation dropped them.
-    const folder = result.folders.find((node) => node.relativePath === "stale/copied");
+    const folder = folders(result).find((node) => node.relativePath === "stale/copied");
     expect(folder?.checkoutPath).toBe(fx.path("stale/copied"));
   });
 
   it("does not enter skip-listed folders, folders deeper than 7, or symlinks", () => {
-    const relative = result.folders.map((node) => node.relativePath);
+    const relative = folders(result).map((node) => node.relativePath);
     expect(relative).toContain("e1/e2/e3/e4/e5/e6/e7");
     expect(relative).not.toContain("node_modules");
     expect(relative).not.toContain("node_modules/dep");
@@ -122,13 +126,14 @@ describe("scan", () => {
   });
 
   it("lists a bare repository's folder without entering its object store", () => {
-    const relative = result.folders.map((node) => node.relativePath);
+    const relative = folders(result).map((node) => node.relativePath);
     expect(relative).toContain("svc.git");
     expect(relative.some((path) => path.startsWith("svc.git/"))).toBe(false);
   });
 
   it("builds the folder tree with depths, parents and the root", () => {
-    const [root] = result.folders;
+    expect(result.roots.map((root) => root.path)).toEqual([fx.root]);
+    const [root] = folders(result);
     expect(root).toEqual({
       name: fx.root.split("/").at(-1),
       relativePath: "",
@@ -136,7 +141,7 @@ describe("scan", () => {
       parent: null,
       checkoutPath: null,
     });
-    expect(result.folders.find((node) => node.relativePath === "work/feature-a")).toEqual({
+    expect(folders(result).find((node) => node.relativePath === "work/feature-a")).toEqual({
       name: "feature-a",
       relativePath: "work/feature-a",
       depth: 2,
@@ -164,7 +169,12 @@ describe("scan", () => {
       working: { staged: 0, unstaged: 0, untracked: 0 },
       history: { commits: 2, files: 2 },
     });
-    expect(checkout(result, app.path)).toMatchObject({ kind: "main", branch: "main" });
+    expect(checkout(result, app.path)).toMatchObject({
+      kind: "main",
+      branch: "main",
+      location: "inside",
+      locked: false,
+    });
     expect(checkout(result, libDetached.path)).toMatchObject({ branch: null, kind: "linked" });
     expect(checkout(result, featureB.path).history).toEqual({ commits: 0, files: 0 });
   });
@@ -211,10 +221,10 @@ describe("scan", () => {
   it("runs at least 50% fewer git processes when scanning an unchanged folder again", async () => {
     const state = coreState();
     const beforeFirst = spawnCount();
-    const first = await scan(fx.root, { state });
+    const first = await scan(fx.root, { state, worktrees: "walked" });
     const firstCount = spawnCount() - beforeFirst;
     const beforeSecond = spawnCount();
-    const second = await scan(fx.root, { state });
+    const second = await scan(fx.root, { state, worktrees: "walked" });
     const secondCount = spawnCount() - beforeSecond;
     expect(paths(second)).toEqual(paths(first));
     expect(second.timeline).toEqual(first.timeline);
@@ -349,7 +359,7 @@ describe("scan edge cases", () => {
     try {
       const repo = local.repo("r");
       const scanned = await scan(repo.path, { state: coreState() });
-      expect(scanned.folders.map((node) => node.relativePath)).toEqual([""]);
+      expect(folders(scanned).map((node) => node.relativePath)).toEqual([""]);
       expect(checkout(scanned, repo.path)).toMatchObject({
         head: null,
         branch: "main",
@@ -421,5 +431,182 @@ describe("scan edge cases", () => {
     await expect(
       scan(fx.root, { state: coreState(), signal: controller.signal }),
     ).rejects.toMatchObject({ code: "cancelled" });
+  });
+});
+
+describe("several roots and outside worktrees", () => {
+  const timelineEntry = (scanResult: ScanResult, path: string) =>
+    scanResult.timeline.find((entry) => entry.checkoutPath === path);
+
+  it("merges a repository found from two sibling roots, with one timeline across them", async () => {
+    const local = fixture();
+    try {
+      const repo = local.repo("one/app").commit({ "a.txt": "1\n" });
+      const feature = repo.worktree("two/app-feature", { from: "main" });
+      feature.commit({ "b.txt": "2\n" });
+      const scanned = await scan([local.path("one"), local.path("two")], {
+        state: coreState(),
+      });
+      expect(scanned.roots.map((root) => root.path)).toEqual([local.path("one"), local.path("two")]);
+      expect(scanned.roots[1]?.folders.map((node) => node.relativePath)).toEqual([
+        "",
+        "app-feature",
+      ]);
+      expect(paths(scanned)).toEqual([repo.path, feature.path]);
+      expect(scanned.repositories).toEqual([
+        { commonDir: repo.commonDir, displayName: "app", checkouts: [repo.path, feature.path] },
+      ]);
+      expect(timelineEntry(scanned, feature.path)).toMatchObject({
+        sequence: 2,
+        predecessor: repo.path,
+        relation: "after",
+      });
+      for (const path of [repo.path, feature.path]) {
+        expect(checkout(scanned, path).location).toBe("inside");
+      }
+    } finally {
+      local.cleanup();
+    }
+  });
+
+  it("walks a root inside another root once, so each checkout is listed once", async () => {
+    const local = fixture();
+    try {
+      const repo = local.repo("group/app").commit({ "a.txt": "1\n" });
+      const feature = repo.worktree("group/app-feature", { from: "main" });
+      for (const roots of [
+        [local.root, local.path("group")],
+        [local.path("group"), local.root, local.root],
+      ]) {
+        const scanned = await scan(roots, { state: coreState() });
+        expect(scanned.roots.map((root) => root.path)).toEqual([local.root]);
+        expect(paths(scanned)).toEqual([repo.path, feature.path]);
+        expect(scanned.timeline.map((entry) => entry.sequence)).toEqual([1, 2]);
+      }
+    } finally {
+      local.cleanup();
+    }
+  });
+
+  it("lists a worktree outside every root, marked outside", async () => {
+    const local = fixture();
+    try {
+      const repo = local.repo("app").commit({ "a.txt": "1\n" });
+      const elsewhere = repo.outsideWorktree("agents/app-1", { from: "main" });
+      elsewhere.commit({ "b.txt": "2\n" });
+      const scanned = await scan(local.root, { state: coreState() });
+      expect(paths(scanned)).toEqual([repo.path, elsewhere.path]);
+      expect(checkout(scanned, repo.path)).toMatchObject({ kind: "main", location: "inside" });
+      expect(checkout(scanned, elsewhere.path)).toMatchObject({
+        kind: "linked",
+        location: "outside",
+        locked: false,
+        branch: "app-1",
+        head: elsewhere.head(),
+        history: { commits: 1, files: 1 },
+      });
+      expect(scanned.repositories[0]?.checkouts).toEqual([repo.path, elsewhere.path]);
+      expect(timelineEntry(scanned, elsewhere.path)).toMatchObject({
+        predecessor: repo.path,
+        relation: "after",
+      });
+      // The folder tree is the walk's: nothing outside the root joins it.
+      for (const node of folders(scanned)) expect(node.checkoutPath).not.toBe(elsewhere.path);
+    } finally {
+      local.cleanup();
+    }
+  });
+
+  it("lists the main checkout as outside when a root holds only a linked worktree", async () => {
+    const local = fixture();
+    try {
+      const repo = local.repo("app").commit({ "a.txt": "1\n" });
+      const linked = repo.outsideWorktree("agents/app-1", { from: "main" });
+      const scanned = await scan(local.outsidePath("agents"), { state: coreState() });
+      expect(new Set(paths(scanned))).toEqual(new Set([repo.path, linked.path]));
+      expect(checkout(scanned, linked.path)).toMatchObject({ kind: "linked", location: "inside" });
+      expect(checkout(scanned, repo.path)).toMatchObject({ kind: "main", location: "outside" });
+      expect(scanned.repositories).toEqual([
+        { commonDir: repo.commonDir, displayName: "app", checkouts: [repo.path, linked.path] },
+      ]);
+    } finally {
+      local.cleanup();
+    }
+  });
+
+  it("lists a worktree under a root that the walk never reaches, marked inside", async () => {
+    const local = fixture();
+    try {
+      const repo = local.repo("app").commit({ "a.txt": "1\n" });
+      const agent = repo.agentWorktree("task-1", { from: "main" });
+      const scanned = await scan(local.root, { state: coreState() });
+      expect(agent.path).toBe(join(repo.path, ".claude", "worktrees", "task-1"));
+      expect(paths(scanned)).toEqual([repo.path, agent.path]);
+      expect(checkout(scanned, agent.path)).toMatchObject({ kind: "linked", location: "inside" });
+      // The walk stops at the main checkout, so its tree holds no folder for the worktree.
+      expect(folders(scanned).map((node) => node.relativePath)).toEqual(["", "app"]);
+    } finally {
+      local.cleanup();
+    }
+  });
+
+  it("leaves out a worktree deleted without prune, and flags a locked one", async () => {
+    const local = fixture();
+    try {
+      const repo = local.repo("app").commit({ "a.txt": "1\n" });
+      const gone = repo.outsideWorktree("agents/gone", { from: "main" });
+      const kept = repo.outsideWorktree("agents/kept", { from: "main" });
+      repo.lock(kept);
+      rmSync(gone.path, { recursive: true, force: true });
+      expect(repo.repoGit(["worktree", "list", "--porcelain"])).toMatch(/\nprunable /);
+      const scanned = await scan(local.root, { state: coreState() });
+      expect(paths(scanned)).toEqual([repo.path, kept.path]);
+      expect(checkout(scanned, kept.path)).toMatchObject({ location: "outside", locked: true });
+      expect(checkout(scanned, repo.path).locked).toBe(false);
+    } finally {
+      local.cleanup();
+    }
+  });
+
+  it("sees a worktree locked or unlocked since the last scan, though the list was cached", async () => {
+    const local = fixture();
+    try {
+      const repo = local.repo("app").commit({ "a.txt": "1\n" });
+      const wt = repo.worktree("app-wt", { from: "main" });
+      const state = coreState();
+      expect(checkout(await scan(local.root, { state }), wt.path).locked).toBe(false);
+      repo.lock(wt);
+      expect(checkout(await scan(local.root, { state }), wt.path).locked).toBe(true);
+      repo.unlock(wt);
+      expect(checkout(await scan(local.root, { state }), wt.path).locked).toBe(false);
+    } finally {
+      local.cleanup();
+    }
+  });
+
+  it("leaves outside worktrees out with inside, and lists only walked ones with walked", async () => {
+    const local = fixture();
+    try {
+      const repo = local.repo("app").commit({ "a.txt": "1\n" });
+      const sibling = repo.worktree("app-sibling", { from: "main" });
+      const agent = repo.agentWorktree("task-1", { from: "main" });
+      repo.outsideWorktree("agents/app-1", { from: "main" });
+      const inside = await scan(local.root, { state: coreState(), worktrees: "inside" });
+      expect(new Set(paths(inside))).toEqual(new Set([repo.path, sibling.path, agent.path]));
+      const walked = await scan(local.root, { state: coreState(), worktrees: "walked" });
+      expect(new Set(paths(walked))).toEqual(new Set([repo.path, sibling.path]));
+      expect(walked.repositories[0]?.checkouts).toHaveLength(2);
+      for (const item of walked.checkouts) expect(item.checkout.location).toBe("inside");
+    } finally {
+      local.cleanup();
+    }
+  });
+
+  it("lists the original a copied stale .git file points at, outside the root", async () => {
+    const scanned = await scan(fx.root, { state: coreState() });
+    const original = fx.outsidePath("originals/copied");
+    expect(checkout(scanned, original)).toMatchObject({ location: "outside", kind: "linked" });
+    expect(paths(scanned)).not.toContain(fx.path("stale/copied"));
+    expect(new Set(paths(scanned))).toEqual(new Set([...paths(result), original]));
   });
 });

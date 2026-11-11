@@ -7,9 +7,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CoreState } from "../../src/core/cache/shared-state";
 import type { ScanContext } from "../../src/core/scan/context";
+import { outermostRoots } from "../../src/core/scan/roots";
 import { runScan, type ScanResult } from "../../src/core/scan/scan";
 import { openReviewStore } from "../../src/core/store/open-store";
 import type { ReviewStore } from "../../src/core/store/review-store";
+import type { WorktreeChoice } from "../../src/shared/domain/scan";
 import { createLogger, type Logger } from "../../src/shared/log";
 import { gitIn } from "./git";
 
@@ -23,14 +25,23 @@ export interface ScanOptions {
   store?: ReviewStore | null;
   holder?: number;
   signal?: AbortSignal;
+  /** Which checkouts to list besides the walked ones. Default `all`, as `session.open`. */
+  worktrees?: WorktreeChoice;
 }
 
-/** A scan context for `root`, acquiring repositories from `state` as `holder`. */
-export function scanContext(root: string, options: ScanOptions = {}): ScanContext {
+/**
+ * A scan context for `roots` (real paths, deduplicated and without nested roots as
+ * `session.open` does), acquiring repositories from `state` as `holder`.
+ */
+export function scanContext(
+  roots: string | readonly string[],
+  options: ScanOptions = {},
+): ScanContext {
   const state = options.state ?? new CoreState();
   const holder = options.holder ?? 1;
   return {
-    scanRoot: root,
+    scanRoots: outermostRoots(typeof roots === "string" ? [roots] : roots),
+    worktrees: options.worktrees ?? "all",
     signal: options.signal ?? new AbortController().signal,
     store: options.store ?? null,
     repository: (commonDir) => state.acquireRepository(holder, commonDir),
@@ -38,9 +49,12 @@ export function scanContext(root: string, options: ScanOptions = {}): ScanContex
   };
 }
 
-/** Scans `root` in one call. */
-export function scan(root: string, options: ScanOptions = {}): Promise<ScanResult> {
-  return runScan(scanContext(root, options));
+/** Scans `roots` in one call. */
+export function scan(
+  roots: string | readonly string[],
+  options: ScanOptions = {},
+): Promise<ScanResult> {
+  return runScan(scanContext(roots, options));
 }
 
 /** Non-bare checkout paths Git lists for the repository in `cwd`, as Git prints them. */
