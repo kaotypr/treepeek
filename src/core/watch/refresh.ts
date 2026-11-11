@@ -402,8 +402,12 @@ export class RefreshRunner {
     const changed = new Set(kinds);
     if (!read) return { scanned, changed };
     const path = scanned.checkout.path;
-    // Read now, so no longer stale; an edit landing while it runs marks it again.
-    this.#background.get(session)?.delete(path);
+    // Read now, so no longer stale; an edit landing while it runs marks it again, and a
+    // refresh that fails or stops leaves it stale.
+    const wasStale = this.#background.get(session)?.delete(path) ?? false;
+    const stillStale = () => {
+      if (wasStale) this.#background.get(session)?.add(path);
+    };
     try {
       const repo = ctx.repository(scanned.commonDir);
       const status = await readStatus(repo, path, ctx.signal);
@@ -426,7 +430,10 @@ export class RefreshRunner {
         ctx,
         { fresh: false },
       );
-      if (ctx.signal.aborted) return null;
+      if (ctx.signal.aborted) {
+        stillStale();
+        return null;
+      }
       if (!sameUpstream(scanned.checkout.upstream, updated.checkout.upstream)) {
         changed.add("upstream");
       }
@@ -439,6 +446,7 @@ export class RefreshRunner {
       session.replaceCheckout(updated);
       return { scanned: updated, changed };
     } catch (error) {
+      stillStale();
       if (ctx.signal.aborted || isCancelled(error)) throw error;
       if (!(await exists(join(path, ".git")))) return "gone";
       session.log.warn("could not refresh a checkout", { path, error });
