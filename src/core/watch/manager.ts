@@ -1,10 +1,18 @@
+import { stat } from "node:fs/promises";
 import type { ChangeKind, RefreshPause } from "../../shared/domain/change";
 import type { Logger } from "../../shared/log";
-import type { BackendName, WatchBackend, WatchEvent, WatchSubscription } from "./backends";
+import { isWithin } from "../sessions/path-rule";
+import type { WatchBackend, WatchEvent, WatchSubscription } from "./backends";
 import { buildWatchIndex, type Classified, classify, type WatchIndex } from "./classify";
 import { CheckoutDebouncer } from "./debounce";
 import { StormGuard } from "./storm";
-import { targetKey, type WatchedScan, type WatchTarget, watchTargets } from "./targets";
+import {
+  targetKey,
+  type WatchedScan,
+  type WatchLayout,
+  type WatchTarget,
+  watchTargets,
+} from "./targets";
 
 /** A change, once the events for it have gone quiet. */
 export type WatchChange =
@@ -19,7 +27,11 @@ export type WatchChange =
   | { scope: "root"; scanRoot: string; kinds: ChangeKind[] };
 
 export interface WatchManagerOptions {
-  /** Tried in order for each folder; the next one only when the one before cannot watch it. */
+  /**
+   * Tried in order for each folder; the next one only when the one before cannot watch it.
+   * When every one of them can watch a folder without its subfolders, the repositories get
+   * narrow targets (`watchTargets`).
+   */
   backends: readonly WatchBackend[];
   log: Logger;
   /** A change, debounced. */
@@ -37,7 +49,8 @@ export interface WatchManagerOptions {
 export interface SubscriptionInfo {
   kind: WatchTarget["kind"];
   path: string;
-  backend: BackendName | null;
+  /** The name of the backend watching it; `null` when none does (yet). */
+  backend: string | null;
   holders: number;
 }
 
@@ -45,13 +58,18 @@ interface Subscription {
   readonly key: string;
   readonly target: WatchTarget;
   readonly holders: Set<number>;
-  backend: BackendName | null;
+  backend: string | null;
   handle: WatchSubscription | null;
   /** Settles once a backend watches the folder or every backend has failed. */
   ready: Promise<void>;
   closed: boolean;
   /** When every backend failed; `null` while it is watched (or still subscribing). */
   unavailableSince: number | null;
+  /**
+   * An optional folder every backend refused because it is not there: nothing watches it,
+   * nothing is paused, and the next scan that wants it tries again.
+   */
+  absent: boolean;
 }
 
 /** What the debouncer gathers: change kinds, and the refs a repository change names. */
@@ -70,10 +88,12 @@ const SEPARATOR = "\0";
  *
  * A folder the first backend cannot watch falls back to the next one; when none can, it is
  * reported as unavailable and left alone. Nothing is retried in a loop: only `resume` (the
- * person's Refresh) tries such a folder once more.
+ * person's Refresh) tries such a folder once more. An optional folder that is missing is
+ * not unavailable but absent, and the next scan that wants it tries again.
  */
 export class WatchManager {
   readonly #backends: readonly WatchBackend[];
+  readonly #layout: WatchLayout;
   readonly #log: Logger;
   readonly #onChange: (change: WatchChange) => void;
   readonly #onPausedChange: () => void;
@@ -90,6 +110,13 @@ export class WatchManager {
 
   constructor(options: WatchManagerOptions) {
     this.#backends = options.backends;
+    // A list that mixes in a backend needing recursion keeps every target recursive, so a
+    // fallback never gets a target it cannot watch.
+    this.#layout = {
+      narrow:
+        options.backends.length > 0 &&
+        options.backends.every((backend) => backend.nonRecursive === true),
+    };
     this.#log = options.log;
     this.#onChange = options.onChange;
     this.#onPausedChange = options.onPausedChange;
@@ -111,7 +138,9 @@ export class WatchManager {
     if (this.#disposed) return;
     this.#scans.set(holder, scan);
     this.#index = buildWatchIndex(this.#scans.values());
-    const wanted = new Map(watchTargets(scan).map((target) => [targetKey(target), target]));
+    const wanted = new Map(
+      watchTargets(scan, this.#layout).map((target) => [targetKey(target), target]),
+    );
     const work: Promise<void>[] = [];
     for (const subscription of [...this.#subscriptions.values()]) {
       if (subscription.holders.has(holder) && !wanted.has(subscription.key)) {
@@ -135,22 +164,31 @@ export class WatchManager {
     this.#forgetUnwatched();
   }
 
-  /** The backend watching: `fs.watch` once any folder had to fall back to it. */
-  backend(): BackendName {
-    const used = [...this.#subscriptions.values()].map((subscription) => subscription.backend);
-    if (used.includes("fs.watch")) return "fs.watch";
-    if (used.includes("fsevents")) return "fsevents";
-    return this.#backends[0]?.name ?? "fsevents";
+  /**
+   * The backend watching: the one furthest down the list that any folder uses (a folder
+   * fell back to it), else the first one.
+   */
+  backend(): string {
+    const used = new Set(
+      [...this.#subscriptions.values()].map((subscription) => subscription.backend),
+    );
+    const last = this.#backends.findLast((backend) => used.has(backend.name));
+    return last?.name ?? this.#backends[0]?.name ?? "none";
   }
 
-  /** Every subscription, for `test.liveRefresh` and the measurements. */
+  /**
+   * Every subscription, for `test.liveRefresh` and the measurements; an absent optional
+   * folder is none, since nothing watches it.
+   */
   subscriptions(): SubscriptionInfo[] {
-    return [...this.#subscriptions.values()].map((subscription) => ({
-      kind: subscription.target.kind,
-      path: subscription.target.path,
-      backend: subscription.backend,
-      holders: subscription.holders.size,
-    }));
+    return [...this.#subscriptions.values()]
+      .filter((subscription) => !subscription.absent)
+      .map((subscription) => ({
+        kind: subscription.target.kind,
+        path: subscription.target.path,
+        backend: subscription.backend,
+        holders: subscription.holders.size,
+      }));
   }
 
   /** The scan `holder` watches, if any. */
@@ -222,6 +260,11 @@ export class WatchManager {
     const existing = this.#subscriptions.get(key);
     if (existing) {
       existing.holders.add(holder);
+      if (existing.absent) {
+        // A folder that was missing may be there now.
+        existing.absent = false;
+        existing.ready = this.#subscribe(existing);
+      }
       return existing.ready;
     }
     const subscription: Subscription = {
@@ -233,15 +276,30 @@ export class WatchManager {
       ready: Promise.resolve(),
       closed: false,
       unavailableSince: null,
+      absent: false,
     };
     this.#subscriptions.set(key, subscription);
     subscription.ready = this.#subscribe(subscription);
     return subscription.ready;
   }
 
-  /** Tries each backend once, in order. */
+  /**
+   * Tries each backend once, in order. An optional folder's failures are only logged once
+   * it turns out to be there: a repository without linked worktrees is no trouble.
+   */
   async #subscribe(subscription: Subscription): Promise<void> {
     const { target } = subscription;
+    const failures: { backend: string; error: unknown }[] = [];
+    const report = () => {
+      for (const { backend, error } of failures.splice(0)) {
+        this.#log.warn("could not watch a folder", {
+          path: target.path,
+          kind: target.kind,
+          backend,
+          error,
+        });
+      }
+    };
     for (const backend of this.#backends) {
       try {
         const handle = await backend.subscribe(
@@ -255,17 +313,25 @@ export class WatchManager {
         }
         subscription.handle = handle;
         subscription.backend = backend.name;
+        report();
         return;
       } catch (error) {
-        this.#log.warn("could not watch a folder", {
-          path: target.path,
-          kind: target.kind,
-          backend: backend.name,
-          error,
-        });
+        failures.push({ backend: backend.name, error });
+        if (!target.optional) report();
         if (subscription.closed) return;
       }
     }
+    if (target.optional && (await isMissing(target.path))) {
+      if (subscription.closed) return;
+      subscription.absent = true;
+      this.#log.debug("an optional folder is not there to watch", {
+        path: target.path,
+        kind: target.kind,
+      });
+      return;
+    }
+    report();
+    if (subscription.closed) return;
     subscription.unavailableSince = this.#now();
     this.#log.error("live refresh unavailable for a folder", {
       path: target.path,
@@ -338,6 +404,10 @@ export class WatchManager {
    * Each kind of target speaks for its own signals only: the scan root for folders that
    * appear or go, a working tree for edits, a repository for its git dirs, refs and
    * worktrees. The same file seen by two overlapping watches therefore counts once.
+   *
+   * Refs count from the common dir's own targets. Worktrees added, removed or moved count
+   * from those too, and from a git dir's own target inside that common dir: with narrow
+   * targets, only a linked worktree's own watch sees its `gitdir` file change.
    */
   #route(
     target: WatchTarget,
@@ -362,10 +432,16 @@ export class WatchManager {
       case "gitDir":
         if ((kind === "head" || kind === "index" || kind === "reflog") && checkoutPath) {
           this.#debouncer.add(checkoutKey(checkoutPath), [kind]);
-        } else if (kind === "refs" && commonDir === target.path) {
+        } else if (kind === "refs" && target.kind === "common" && commonDir === target.owner) {
           const ref: Gathered = classified.ref ? `ref:${classified.ref}` : ANY_REF;
           this.#debouncer.add(repositoryKey(commonDir), ["refs", ref]);
-        } else if (kind === "structure" && commonDir === target.path) {
+        } else if (
+          kind === "structure" &&
+          commonDir !== undefined &&
+          (target.kind === "common"
+            ? commonDir === target.owner
+            : isWithin(target.owner, commonDir))
+        ) {
           this.#debouncer.add(repositoryKey(commonDir), ["structure"]);
         }
         return;
@@ -374,9 +450,11 @@ export class WatchManager {
 
   /**
    * After trouble a watch reports, everything it covers is read again: events may have been
-   * lost. A watch that stopped is reported unavailable, and not restarted.
+   * lost. What it covers is what its owner speaks for, so a narrow target re-reads as much
+   * as the whole folder's watch would. A watch that stopped is reported unavailable, and
+   * not restarted.
    */
-  #onError(subscription: Subscription, backend: BackendName, error: Error, fatal: boolean): void {
+  #onError(subscription: Subscription, backend: string, error: Error, fatal: boolean): void {
     if (subscription.closed) return;
     this.#log.warn("a watcher reported trouble", {
       path: subscription.target.path,
@@ -393,17 +471,17 @@ export class WatchManager {
       this.#onPausedChange();
     }
     if (this.#suspended) return;
-    const { kind, path } = subscription.target;
-    if (kind === "root") this.#debouncer.add(rootKey(path), ["structure"]);
-    if (kind === "workingTree" && !this.#storm.isPaused(path)) {
-      this.#debouncer.add(checkoutKey(path), ["workingTree"]);
+    const { kind, owner } = subscription.target;
+    if (kind === "root") this.#debouncer.add(rootKey(owner), ["structure"]);
+    if (kind === "workingTree" && !this.#storm.isPaused(owner)) {
+      this.#debouncer.add(checkoutKey(owner), ["workingTree"]);
     }
     if (kind === "common") {
-      this.#debouncer.add(repositoryKey(path), ["refs", ANY_REF, "structure"]);
+      this.#debouncer.add(repositoryKey(owner), ["refs", ANY_REF, "structure"]);
     }
     if (kind === "common" || kind === "gitDir") {
       for (const checkout of this.#index.checkouts.values()) {
-        if (checkout.commonDir === path || checkout.gitDir === path) {
+        if (checkout.commonDir === owner || checkout.gitDir === owner) {
           this.#debouncer.add(checkoutKey(checkout.path), ["head", "index", "reflog"]);
         }
       }
@@ -442,4 +520,15 @@ function repositoryKey(commonDir: string): string {
 
 function rootKey(scanRoot: string): string {
   return `root${SEPARATOR}${scanRoot}`;
+}
+
+/** Whether nothing is at `path` (a folder there that cannot be read is not missing). */
+async function isMissing(path: string): Promise<boolean> {
+  try {
+    await stat(path);
+    return false;
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException | null)?.code;
+    return code === "ENOENT" || code === "ENOTDIR";
+  }
 }
