@@ -4,8 +4,11 @@
  * so the engine (SQLite or JSON files) can change without touching them.
  *
  * Every method is synchronous: both engines answer from the same process (SQLite through
- * `node:sqlite`, JSON from memory), and a synchronous store cannot interleave two
- * read-modify-write sequences.
+ * `node:sqlite`, JSON from files it re-reads only when they changed), so within one process
+ * a synchronous store cannot interleave two read-modify-write sequences. Several processes
+ * may share one store (a core service per window): SQLite serializes their writes itself,
+ * and the JSON engine merges each process's own changes into the file under a lock
+ * (`json-store.ts`).
  */
 
 export type StoreEngine = "sqlite" | "json";
@@ -150,4 +153,9 @@ export function storeTime(date: Date = new Date()): string {
 /** The later of two store times (both `storeTime` form, so they sort as text). */
 export function laterTime(a: string, b: string): string {
   return a >= b ? a : b;
+}
+
+/** The earlier of two store times. */
+export function earlierTime(a: string, b: string): string {
+  return a <= b ? a : b;
 }

@@ -201,7 +201,14 @@ export function createCoreService(options: CoreServiceOptions): CoreService {
       const watchers = live.dispose();
       sessions.closeAll();
       state.close();
-      store?.close();
+      try {
+        store?.close();
+      } catch (error) {
+        // The last write failed, as a JSON store's can when another process holds its
+        // lock. Its pending changes are lost, but the host is shutting down: disposing
+        // still has to finish, and the desktop calls this from its `exit` handler.
+        log.error("could not close the local store", error);
+      }
       store = null;
       disposing = watchers;
       return disposing;
