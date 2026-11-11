@@ -2,14 +2,19 @@
  * The host-free core service in plain Node: no Electron, no process handlers, no
  * `process.exit`, and nothing left running once it is disposed.
  */
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MessageChannel } from "node:worker_threads";
 import * as v from "valibot";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { observeSpawns } from "../../../src/core/git/process";
-import { createCoreService } from "../../../src/core/service";
+import {
+  createCoreService,
+  type DiscoverOptions,
+  discoverGit,
+  probeGit,
+} from "../../../src/core/service";
 import type { BackendName, WatchBackend } from "../../../src/core/watch/backends";
 import type { WatchTarget } from "../../../src/core/watch/targets";
 import type { GitState } from "../../../src/shared/domain/git";
@@ -217,5 +222,65 @@ describe("createCoreService", () => {
     await service.dispose();
     first.port2.close();
     second.port2.close();
+  });
+});
+
+/**
+ * A login `PATH` folder whose `git` is the test git, and a configured path that names
+ * nothing, so discovery has a usable git to fall through to.
+ */
+function gitPaths(): { loginPath: string; pathGit: string; missing: string } {
+  const dir = mkdtempSync(join(tmpdir(), "treepeek-service-git-"));
+  dataDirs.push(dir);
+  const loginPath = join(dir, "bin");
+  mkdirSync(loginPath);
+  const pathGit = join(loginPath, "git");
+  symlinkSync(testGitPath(), pathGit);
+  return { loginPath, pathGit, missing: join(dir, "missing", "git") };
+}
+
+/** Starts a service, waits for its first git discovery, and disposes of it. */
+async function firstGitState(
+  options: DiscoverOptions,
+  discover?: (options: DiscoverOptions) => Promise<GitState>,
+): Promise<GitState | undefined> {
+  const states: GitState[] = [];
+  const service = createCoreService({
+    dataDir: dataDir(),
+    logSink: () => {},
+    gitPathOverride: options.override,
+    loginPath: options.loginPath,
+    watchBackends: [],
+    onGitState: (state) => states.push(state),
+    ...(discover ? { discover } : {}),
+  });
+  await until(() => states.length > 0);
+  await service.dispose();
+  return states[0];
+}
+
+describe("git discovery through createCoreService", () => {
+  it("reports a missing configured git when the host's discover probes the override alone", async () => {
+    const { loginPath, missing } = gitPaths();
+    // What a host whose configured path is authoritative builds from the service entry.
+    const authoritative = (options: DiscoverOptions) =>
+      options.override === null
+        ? discoverGit(options)
+        : probeGit(options.override, options.loginPath);
+
+    expect(await firstGitState({ override: missing, loginPath }, authoritative)).toEqual({
+      found: false,
+      problem: "notFound",
+      detail: expect.stringContaining(missing),
+    });
+  });
+
+  it("falls through a missing override to git on the login PATH by default", async () => {
+    const { loginPath, pathGit, missing } = gitPaths();
+
+    expect(await firstGitState({ override: missing, loginPath })).toMatchObject({
+      found: true,
+      path: pathGit,
+    });
   });
 });
