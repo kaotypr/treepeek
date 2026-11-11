@@ -98,7 +98,7 @@ test.describe(`outside worktrees (${target})`, () => {
       repo.agentWorktree("task-2", { from: "main" }),
     );
     // A worktree under the folder too, so the window shows that the refresh ran.
-    const later = repo.worktree("app-later", { from: "main" });
+    const later = repo.worktree("app-third", { from: "main" });
     await expect(page.getByTestId("scan-status")).toHaveText(/^3 Git checkouts/, {
       timeout: 10_000,
     });
