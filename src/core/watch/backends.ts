@@ -2,7 +2,7 @@ import { type FSWatcher, watch } from "node:fs";
 import { join } from "node:path";
 import { isIgnored, parcelIgnore, type WatchTarget } from "./targets";
 
-/** The watcher backends live refresh can use, in the order it tries them. */
+/** The core's own watcher backends (the desktop's), in the order it tries them. */
 export type BackendName = "fsevents" | "fs.watch";
 
 /** One filesystem event: an absolute path and what happened to it. */
@@ -15,12 +15,24 @@ export interface WatchSubscription {
   close(): Promise<void>;
 }
 
+/**
+ * Something that watches folders: the core's own backends, or one a host passes to the
+ * core service (its editor's watcher, say).
+ */
 export interface WatchBackend {
-  readonly name: BackendName;
+  /** Shown by `test.liveRefresh` and in the logs. */
+  readonly name: string;
   /**
-   * Watches `target` recursively. Rejects when the folder cannot be watched. `onError`
-   * reports trouble after that: `fatal` when the watch has stopped, otherwise events may
-   * have been lost and whatever it covers should be read again.
+   * Whether it can watch a folder without its subfolders. Only when every backend can does
+   * live refresh ask for such watches (`watchTargets`, `narrow`); otherwise every target is
+   * recursive, so a backend further down the list never gets one it cannot watch.
+   */
+  readonly nonRecursive?: boolean;
+  /**
+   * Watches `target`, with everything below it when `target.recursive`, else only its
+   * direct entries. Rejects when the folder cannot be watched, a missing one included.
+   * `onError` reports trouble after that: `fatal` when the watch has stopped, otherwise
+   * events may have been lost and whatever it covers should be read again.
    */
   subscribe(
     target: WatchTarget,
@@ -28,6 +40,12 @@ export interface WatchBackend {
     onError: (error: Error, fatal: boolean) => void,
   ): Promise<WatchSubscription>;
 }
+
+/**
+ * One of the core's own backends. Neither declares `nonRecursive`, so every target they get
+ * is recursive.
+ */
+type OwnBackend = WatchBackend & { readonly name: BackendName };
 
 type ParcelModule = typeof import("@parcel/watcher");
 
@@ -45,7 +63,7 @@ function loadParcel(): Promise<ParcelModule> {
  * `@parcel/watcher` with its FSEvents backend named outright: left to choose, it would
  * prefer Watchman when that is installed, and nothing here would know.
  */
-export const parcelBackend: WatchBackend = {
+export const parcelBackend: OwnBackend = {
   name: "fsevents",
   async subscribe(target, onEvents, onError) {
     const watcher = await loadParcel();
@@ -65,7 +83,7 @@ export const parcelBackend: WatchBackend = {
  * Node's recursive `fs.watch`, which uses FSEvents on macOS too, with no native module of
  * its own. It neither batches nor filters, so this does both.
  */
-export const fsWatchBackend: WatchBackend = {
+export const fsWatchBackend: OwnBackend = {
   name: "fs.watch",
   subscribe(target, onEvents, onError) {
     let batch: WatchEvent[] = [];
@@ -110,9 +128,8 @@ export const fsWatchBackend: WatchBackend = {
  * would.
  */
 export function defaultBackends(faults: ReadonlySet<BackendName> = new Set()): WatchBackend[] {
-  return [parcelBackend, fsWatchBackend].map((backend) =>
-    faults.has(backend.name) ? failing(backend.name) : backend,
-  );
+  const own: OwnBackend[] = [parcelBackend, fsWatchBackend];
+  return own.map((backend) => (faults.has(backend.name) ? failing(backend.name) : backend));
 }
 
 function failing(name: BackendName): WatchBackend {
