@@ -4,7 +4,7 @@ import type { CoreState } from "../cache/shared-state";
 import type { ScanResult } from "../scan/scan";
 import type { Session } from "../sessions/session";
 import type { ReviewStore } from "../store/review-store";
-import type { BackendName, WatchBackend } from "./backends";
+import type { WatchBackend } from "./backends";
 import { type SubscriptionInfo, WatchManager, type WatchManagerOptions } from "./manager";
 import { RefreshRunner } from "./refresh";
 import { revalidateAll } from "./revalidate";
@@ -25,7 +25,8 @@ export interface LiveRefreshOptions {
 
 /** What `test.liveRefresh` reports. */
 export interface LiveRefreshInfo {
-  backend: BackendName;
+  /** The name of the backend watching (`WatchManager.backend`). */
+  backend: string;
   subscriptions: SubscriptionInfo[];
   /** Folders no backend could watch. */
   unavailable: string[];

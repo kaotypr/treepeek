@@ -28,6 +28,14 @@ import type { ReviewStore } from "./store/review-store";
 import type { WatchBackend } from "./watch/backends";
 import { LiveRefresh } from "./watch/live";
 
+/**
+ * What a host needs to feed live refresh from its own watcher: the backend it implements,
+ * what it is asked to watch, and the filter the core's own backends apply, so it drops the
+ * same events before they cross to the core.
+ */
+export type { WatchBackend, WatchEvent, WatchSubscription } from "./watch/backends";
+export { isIgnored, type WatchTarget } from "./watch/targets";
+
 export interface CoreServiceOptions {
   /** The store lives in `<dataDir>/store/`. */
   dataDir: string;
@@ -36,7 +44,11 @@ export interface CoreServiceOptions {
   gitPathOverride: string | null;
   /** `PATH` to search for git and to run it with. */
   loginPath: string | null;
-  /** Tried in order for each folder. */
+  /**
+   * Tried in order for each folder. When every one declares `nonRecursive`, the
+   * repositories are watched through narrow targets (their git dirs' own files, and
+   * `refs/`) instead of each common dir as a whole.
+   */
   watchBackends: readonly WatchBackend[];
   /** Called after every git discovery. */
   onGitState(state: GitState): void;

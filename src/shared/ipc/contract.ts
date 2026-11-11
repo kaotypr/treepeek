@@ -509,21 +509,22 @@ export const coreCalls = {
   }),
   /**
    * Test-only (refused unless the app runs with `NODE_ENV=test`): what live refresh is
-   * doing, for end-to-end checks: the watcher backend in use, every subscription, the
-   * folders no watcher could watch, the core service's memory, and how many of each call
-   * this window made. `suspend` stops (or restarts) delivering filesystem events, as if
-   * they were lost while the Mac slept.
+   * doing, for end-to-end checks: the watcher backend in use (by name: the desktop's
+   * `fsevents` or `fs.watch`, or one a host passed), every subscription, the folders no
+   * watcher could watch, the core service's memory, and how many of each call this window
+   * made. `suspend` stops (or restarts) delivering filesystem events, as if they were lost
+   * while the Mac slept.
    */
   "test.liveRefresh": defineCall({
     name: "test.liveRefresh",
     request: v.strictObject({ suspend: v.exactOptional(v.boolean()) }),
     response: v.object({
-      backend: v.picklist(["fsevents", "fs.watch"]),
+      backend: v.string(),
       subscriptions: v.array(
         v.object({
           kind: v.string(),
           path: v.string(),
-          backend: v.nullable(v.picklist(["fsevents", "fs.watch"])),
+          backend: v.nullable(v.string()),
           holders: v.number(),
         }),
       ),
