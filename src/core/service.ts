@@ -29,6 +29,13 @@ import type { WatchBackend } from "./watch/backends";
 import { LiveRefresh } from "./watch/live";
 
 /**
+ * What a host needs to build its own `discover`. `discoverGit` falls through an unusable
+ * override to git on the login `PATH`; a host whose configured path must be the only
+ * candidate probes it with `probeGit` instead, so a wrong path is reported as a git problem.
+ */
+export { type DiscoverOptions, discoverGit, probeGit } from "./git/discover";
+
+/**
  * What a host needs to feed live refresh from its own watcher: the backend it implements,
  * what it is asked to watch, and the filter the core's own backends apply, so it drops the
  * same events before they cross to the core.

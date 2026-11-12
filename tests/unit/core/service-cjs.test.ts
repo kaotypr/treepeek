@@ -30,6 +30,9 @@ beforeAll(async () => {
   workDir = mkdtempSync(join(tmpdir(), "treepeek-service-cjs-"));
   bundle = join(workDir, "service.cjs");
   built = await build({
+    // Pinned so the metafile's input paths are relative to this checkout, wherever the
+    // test runs from (the VS Code extension runs a vendored copy at another path).
+    absWorkingDir: root,
     entryPoints: [join(root, "src/core/service.ts")],
     outfile: bundle,
     bundle: true,
